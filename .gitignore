@@ -1,0 +1,57 @@
+cat > .gitignore <<'EOF'
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Napari / Qt / local runtime
+.qt_for_python/
+*.log
+
+# Video outputs / demo artifacts
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.steps.json
+
+# Large microscopy / image data
+*.tif
+*.tiff
+*.nd2
+*.czi
+*.lif
+*.ome.zarr/
+*.zarr/
+EOF

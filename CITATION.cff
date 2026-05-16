@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use napari-demo-assistant in your work, please cite it using this metadata."
+type: software
+title: "napari-demo-assistant"
+version: "0.1.0"
+date-released: "2026-05-16"
+authors:
+  - family-names: "Teo"
+    given-names: "Wulin"
+    orcid: "https://orcid.org/0000-0001-7815-7014"
+repository-code: "https://github.com/wulinteousa2-hash/napari-demo-assistant"
+url: "https://github.com/wulinteousa2-hash/napari-demo-assistant"
+license: "MIT"
+keywords:
+  - "napari"
+  - "screen recording"
+  - "demo recording"
+  - "microscopy"
+  - "image analysis"
+  - "scientific software"
+abstract: "A lightweight napari plugin for recording workflow demonstration videos with live arrows, numbered step circles, optional narrative labels, and timestamped step markers."

@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "napari-demo-assistant"
+version = "0.1.0"
+description = "A lightweight napari plugin for recording workflow demonstration videos with live annotations and step markers."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+    { name = "Wulin Teo" }
+]
+keywords = [
+    "napari",
+    "screen recording",
+    "demo recording",
+    "microscopy",
+    "image analysis",
+    "scientific software",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: napari",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video :: Capture",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "napari",
+    "qtpy",
+    "numpy",
+    "mss",
+    "opencv-python",
+    "imageio-ffmpeg",
+]
+
+[project.urls]
+Homepage = "https://github.com/wulinteousa2-hash/napari-demo-assistant"
+Repository = "https://github.com/wulinteousa2-hash/napari-demo-assistant"
+Issues = "https://github.com/wulinteousa2-hash/napari-demo-assistant/issues"
+
+[project.entry-points."napari.manifest"]
+napari-demo-assistant = "napari_demo_assistant:napari.yaml"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+napari_demo_assistant = ["napari.yaml"]

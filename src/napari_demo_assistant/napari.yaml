@@ -1,0 +1,12 @@
+name: napari-demo-assistant
+display_name: Demo Assistant
+description: Record napari workflow demonstration videos with live arrows, numbered step circles, and step markers.
+visibility: public
+contributions:
+  commands:
+    - id: napari-demo-assistant.make_widget
+      python_name: napari_demo_assistant._widget:DemoAssistantWidget
+      title: Demo Assistant
+  widgets:
+    - command: napari-demo-assistant.make_widget
+      display_name: Demo Assistant
