@@ -4,6 +4,8 @@
 
 It is designed for scientific-software demos, user support, GitHub issue feedback, tutorials, and plugin workflows such as `napari-sam3-assistant`.
 
+Current release: `1.0.0`.
+
 The plugin focuses on **demo recording**, not screenshot capture. Most operating systems already provide screenshot tools. The missing workflow is a simple napari-native way to record what happened and show users where to click.
 
 ## Key features
@@ -13,6 +15,8 @@ The plugin focuses on **demo recording**, not screenshot capture. Most operating
 - Add arrows, text stamps, and numbered step circles while recording.
 - Use high-contrast annotation color palettes.
 - Attach optional narrative labels to annotations.
+- Use a compact, icon-driven dock widget designed for napari.
+- See drawing state, annotation visibility, napari control state, frame count, and elapsed time at a glance.
 - Right-click or press `Esc` to exit drawing mode.
 - Keep annotations visible after leaving drawing mode.
 - Undo/redo annotations with buttons or `Ctrl+Z` / `Ctrl+Y`.
@@ -73,12 +77,12 @@ Plugins > Demo Assistant
 3. Click `Start Recording`.
 4. Add annotations when needed:
    - `Arrow`
-   - `Text Stamp`
-   - `Numbered Circle`
+   - `Text`
+   - `Step Circle`
 5. Right-click or press `Esc` to exit drawing mode.
 6. Click `Stop` to finish recording.
 
-If timeline step markers are used, a `.steps.json` file is saved beside the video.
+The `Add Step Marker` workflow is for the recorded video timeline, not for drawing on the viewer. When used during recording, it updates the current step text for the video overlay and saves the step time/frame beside the video as `.steps.json`.
 
 ## Annotation behavior
 
@@ -88,18 +92,21 @@ Drawing mode is intentionally easy to exit:
 
 - Right-click exits drawing mode.
 - `Esc` exits drawing mode.
-- `Exit Drawing` exits drawing mode.
+- `Exit` exits drawing mode.
 - Existing annotations stay visible.
 - Napari mouse control is restored after drawing mode is off.
+- `Clear` deletes current annotation marks while keeping the overlay ready.
+- `Remove Overlay` unloads the overlay itself and restores napari control.
 
 ## Output notes
 
 The plugin records MP4 video using `imageio-ffmpeg`, `mss`, OpenCV, and H.264 compression.
 
-`CRF` controls compression:
+`CRF quality` controls compression:
 
-- Lower CRF: higher quality, larger files.
-- Higher CRF: smaller files, lower quality.
+- Lower CRF looks better but creates larger files.
+- Higher CRF creates smaller files with more compression.
+- Example: `23` is higher quality, `28` is the compact default, and `32` is smaller.
 
 A practical default for demos is usually `CRF 28` at `12 FPS`.
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from importlib import metadata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,7 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
@@ -28,6 +30,10 @@ from qtpy.QtWidgets import (
 
 from ._overlay import PALETTES, AnnotationOverlay
 from ._recorder import ScreenRecorderWorker
+
+
+BUG_REPORT_URL = "https://github.com/wulinteousa2-hash/napari-demo-assistant/issues"
+PACKAGE_NAME = "napari-demo-assistant"
 
 
 @dataclass
@@ -51,13 +57,16 @@ class DemoAssistantWidget(QWidget):
         self.overlay: Optional[AnnotationOverlay] = None
         self.overlay_target_widget: Optional[QWidget] = None
         self._click_event_filter_installed = False
+        self._recording_paused = False
 
         self.settings = QSettings("napari-demo-assistant", "napari-demo-assistant")
 
         self._build_ui()
+        self._apply_styles()
         self._connect_signals()
         self._load_settings()
         self._set_idle_state()
+        self.destroyed.connect(self._on_destroyed)
 
     def eventFilter(self, obj, event):
         """Draw transient click ripples for video emphasis without blocking Qt events."""
@@ -82,6 +91,13 @@ class DemoAssistantWidget(QWidget):
 
         return super().eventFilter(obj, event)
 
+    def hideEvent(self, event):
+        self._cleanup_annotation_overlay(
+            update_ui=True,
+            log_message="Annotation overlay removed because the widget was hidden.",
+        )
+        super().hideEvent(event)
+
     def _install_click_event_filter(self):
         if self._click_event_filter_installed:
             return
@@ -98,6 +114,25 @@ class DemoAssistantWidget(QWidget):
             app.removeEventFilter(self)
         self._click_event_filter_installed = False
 
+    def _cleanup_annotation_overlay(self, update_ui: bool = True, log_message: Optional[str] = None):
+        if self.overlay is not None:
+            self.overlay.hide()
+            self.overlay.deleteLater()
+            self.overlay = None
+            self.overlay_target_widget = None
+
+        self._remove_click_event_filter()
+
+        if update_ui:
+            self._update_undo_redo_buttons()
+            self._set_status_chips("off", "hidden", "ready")
+            self.status_label.setText("Status: Annotation overlay removed")
+            if log_message:
+                self._log(log_message)
+
+    def _on_destroyed(self, _obj=None):
+        self._cleanup_annotation_overlay(update_ui=False)
+
     def _sync_overlay_geometry(self):
         if self.overlay is not None and self.overlay_target_widget is not None:
             self.overlay.setGeometry(self.overlay_target_widget.rect())
@@ -105,20 +140,45 @@ class DemoAssistantWidget(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
-        title = QLabel("<b>napari-demo-assistant</b>")
+        header = QWidget()
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
+
+        title_block = QWidget()
+        title_layout = QVBoxLayout(title_block)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(1)
+
+        title = QLabel("napari-demo-assistant")
+        title.setObjectName("TitleLabel")
         subtitle = QLabel(
-            "Record napari demos. Add arrows, optional narrative labels, and numbered step circles."
+            "Record napari demos with arrows, labels, and numbered steps."
         )
+        subtitle.setObjectName("SubtitleLabel")
         subtitle.setWordWrap(True)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        title_layout.addWidget(title)
+        title_layout.addWidget(subtitle)
+        header_layout.addWidget(title_block, stretch=1)
+
+        self.about_btn = QPushButton("⋮")
+        self.about_btn.setObjectName("HeaderIconButton")
+        self.about_btn.setToolTip("About napari-demo-assistant")
+        header_layout.addWidget(self.about_btn)
+
+        layout.addWidget(header)
 
         # ------------------------------------------------------------------
         # Recording
         # ------------------------------------------------------------------
-        settings_box = QGroupBox("1. Recording")
+        settings_box = QGroupBox("  1  Recording")
         settings_layout = QFormLayout(settings_box)
+        settings_layout.setContentsMargins(12, 18, 12, 10)
+        settings_layout.setSpacing(8)
+        settings_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
         self.target_combo = QComboBox()
         self.target_combo.addItems(["Full napari window", "Viewer canvas only"])
@@ -130,126 +190,426 @@ class DemoAssistantWidget(QWidget):
         self.crf_spin = QSpinBox()
         self.crf_spin.setRange(18, 35)
         self.crf_spin.setValue(28)
+        crf_tooltip = (
+            "Video quality / file size. Lower CRF looks better but creates larger files; "
+            "higher CRF creates smaller files. Example: 23 = higher quality, 28 = compact default, 32 = smaller file."
+        )
+        self.crf_spin.setToolTip(crf_tooltip)
+        crf_label = QLabel("▫  CRF quality")
+        crf_label.setToolTip(crf_tooltip)
 
-        self.video_text_overlay_check = QCheckBox("Show elapsed time / step text on recorded video")
+        self.video_text_overlay_check = QCheckBox("Elapsed time / step text on video")
         self.video_text_overlay_check.setChecked(True)
 
         self.output_line = QLineEdit()
         self.output_line.setPlaceholderText("Choose output .mp4 path")
-        self.choose_output_btn = QPushButton("Choose")
-        self.keep_output_check = QCheckBox("Keep selected output path")
+        self.choose_output_btn = QPushButton("Browse")
+        self.keep_output_check = QCheckBox("Remember output path")
         self.keep_output_check.setChecked(True)
 
         output_row = QWidget()
         output_layout = QHBoxLayout(output_row)
         output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(6)
         output_layout.addWidget(self.output_line, stretch=1)
         output_layout.addWidget(self.choose_output_btn)
 
-        settings_layout.addRow("Target:", self.target_combo)
-        settings_layout.addRow("FPS:", self.fps_spin)
-        settings_layout.addRow("CRF:", self.crf_spin)
-        settings_layout.addRow("Video overlay:", self.video_text_overlay_check)
-        settings_layout.addRow("Output:", output_row)
+        settings_layout.addRow("⌖  Target", self.target_combo)
+        settings_layout.addRow("◴  FPS", self.fps_spin)
+        settings_layout.addRow(crf_label, self.crf_spin)
+        settings_layout.addRow("▣  Video overlay", self.video_text_overlay_check)
+        settings_layout.addRow("▰  Output", output_row)
         settings_layout.addRow("", self.keep_output_check)
         layout.addWidget(settings_box)
 
         # ------------------------------------------------------------------
         # Recording controls
         # ------------------------------------------------------------------
-        controls_box = QGroupBox("2. Record Controls")
-        controls_layout = QHBoxLayout(controls_box)
-        self.start_btn = QPushButton("Start Recording")
-        self.pause_btn = QPushButton("Pause")
-        self.stop_btn = QPushButton("Stop")
-        controls_layout.addWidget(self.start_btn)
-        controls_layout.addWidget(self.pause_btn)
-        controls_layout.addWidget(self.stop_btn)
+        controls_box = QGroupBox("  2  Record Controls")
+        controls_layout = QVBoxLayout(controls_box)
+        controls_layout.setContentsMargins(12, 18, 12, 10)
+        controls_layout.setSpacing(8)
+        controls_buttons_layout = QHBoxLayout()
+        controls_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        controls_buttons_layout.setSpacing(8)
+        self.start_btn = QPushButton("● Start")
+        self.pause_btn = QPushButton("Ⅱ Pause")
+        self.stop_btn = QPushButton("■ Stop")
+        self.start_btn.setObjectName("StartButton")
+        self.pause_btn.setObjectName("PauseButton")
+        self.stop_btn.setObjectName("StopButton")
+        controls_buttons_layout.addWidget(self.start_btn)
+        controls_buttons_layout.addWidget(self.pause_btn)
+        controls_buttons_layout.addWidget(self.stop_btn)
+        controls_layout.addLayout(controls_buttons_layout)
+        self.frame_label = QLabel("▣  Frames: 0   •   ◷  Time: 0.0 s")
+        self.frame_label.setObjectName("ActivityLine")
+        controls_layout.addWidget(self.frame_label)
         layout.addWidget(controls_box)
 
         # ------------------------------------------------------------------
         # Steps / narrative
         # ------------------------------------------------------------------
-        step_box = QGroupBox("3. Step / Narrative")
+        step_box = QGroupBox("  3  Step / Narrative")
         step_layout = QFormLayout(step_box)
+        step_layout.setContentsMargins(12, 18, 12, 10)
+        step_layout.setSpacing(8)
 
         self.step_number_spin = QSpinBox()
         self.step_number_spin.setRange(1, 999)
         self.step_number_spin.setValue(1)
 
-        self.auto_increment_check = QCheckBox("Auto-increment after numbered circle")
+        self.auto_increment_check = QCheckBox("Auto-increment")
         self.auto_increment_check.setChecked(True)
 
-        self.narrative_check = QCheckBox("Attach narrative text to arrow/text/circle")
+        self.narrative_check = QCheckBox("Attach narrative to arrow / text / circle")
         self.narrative_check.setChecked(False)
+        self.narrative_check.setToolTip(
+            "Use this text as a label when placing arrows, text stamps, or step circles."
+        )
 
         self.step_input = QLineEdit()
-        self.step_input.setPlaceholderText("Optional: Run SAM3 preview")
+        self.step_input.setPlaceholderText("Optional timeline/video label")
+        self.step_input.setToolTip(
+            "Text for the recorded video overlay, timeline marker, and optional annotation narrative."
+        )
 
-        self.add_step_btn = QPushButton("Add Timeline Step Marker")
+        self.add_step_btn = QPushButton("⚑  Add Step Marker")
+        self.add_step_btn.setObjectName("AccentButton")
+        self.add_step_btn.setToolTip(
+            "Add the current step number/text to the recording timeline and video overlay. This does not draw on the viewer."
+        )
 
-        step_layout.addRow("Step number:", self.step_number_spin)
+        step_layout.addRow("☷  Step number", self.step_number_spin)
         step_layout.addRow("", self.auto_increment_check)
-        step_layout.addRow("Narrative:", self.narrative_check)
-        step_layout.addRow("Text:", self.step_input)
+        step_layout.addRow("○  Narrative", self.narrative_check)
+        step_layout.addRow("⚑  Marker text", self.step_input)
         step_layout.addRow("", self.add_step_btn)
         layout.addWidget(step_box)
 
         # ------------------------------------------------------------------
         # Live annotation
         # ------------------------------------------------------------------
-        annotation_box = QGroupBox("4. Live Annotation")
+        annotation_box = QGroupBox("  4  Live Annotation")
         annotation_layout = QVBoxLayout(annotation_box)
+        annotation_layout.setContentsMargins(12, 18, 12, 10)
+        annotation_layout.setSpacing(8)
 
         style_grid = QGridLayout()
+        style_grid.setContentsMargins(0, 0, 0, 0)
+        style_grid.setHorizontalSpacing(8)
         self.palette_combo = QComboBox()
         self.palette_combo.addItems(list(PALETTES.keys()))
-        style_grid.addWidget(QLabel("Color palette:"), 0, 0)
+        style_grid.addWidget(QLabel("◉  Palette"), 0, 0)
         style_grid.addWidget(self.palette_combo, 0, 1)
+        style_grid.setColumnStretch(2, 1)
         annotation_layout.addLayout(style_grid)
 
         mode_grid = QGridLayout()
-        self.arrow_btn = QPushButton("Arrow")
-        self.text_stamp_btn = QPushButton("Text Stamp")
-        self.numbered_circle_btn = QPushButton("Numbered Circle")
-        self.exit_drawing_btn = QPushButton("Exit Drawing / Return to Napari")
-        self.undo_annotation_btn = QPushButton("Undo Annotation")
-        self.redo_annotation_btn = QPushButton("Redo Annotation")
+        mode_grid.setContentsMargins(0, 0, 0, 0)
+        mode_grid.setHorizontalSpacing(8)
+        mode_grid.setVerticalSpacing(8)
+        self.arrow_btn = QPushButton("↗ Arrow")
+        self.text_stamp_btn = QPushButton("T Text")
+        self.numbered_circle_btn = QPushButton("① Step")
+        self.exit_drawing_btn = QPushButton("⌖ Exit")
+        self.undo_annotation_btn = QPushButton("↶ Undo")
+        self.redo_annotation_btn = QPushButton("↷ Redo")
         self.remove_overlay_btn = QPushButton("Remove Overlay")
-        self.clear_annotations_btn = QPushButton("Clear Annotations")
+        self.clear_annotations_btn = QPushButton("🗑 Clear")
+        self.exit_drawing_btn.setToolTip(
+            "Stop drawing mode and return mouse control to napari. Existing annotations stay visible."
+        )
+        self.clear_annotations_btn.setToolTip(
+            "Delete all current annotation marks, but keep the overlay ready for more drawing."
+        )
+        self.remove_overlay_btn.setToolTip(
+            "Remove the annotation overlay itself. This also clears overlay marks and restores napari control."
+        )
 
         self.undo_annotation_btn.setShortcut("Ctrl+Z")
         self.redo_annotation_btn.setShortcut("Ctrl+Y")
 
+        for button in (
+            self.arrow_btn,
+            self.text_stamp_btn,
+            self.numbered_circle_btn,
+            self.exit_drawing_btn,
+            self.undo_annotation_btn,
+            self.redo_annotation_btn,
+            self.clear_annotations_btn,
+        ):
+            button.setObjectName("AnnotationButton")
+            button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.remove_overlay_btn.setObjectName("SecondaryButton")
+
         mode_grid.addWidget(self.arrow_btn, 0, 0)
         mode_grid.addWidget(self.text_stamp_btn, 0, 1)
         mode_grid.addWidget(self.numbered_circle_btn, 0, 2)
-        mode_grid.addWidget(self.exit_drawing_btn, 1, 0, 1, 3)
-        mode_grid.addWidget(self.undo_annotation_btn, 2, 0)
-        mode_grid.addWidget(self.redo_annotation_btn, 2, 1)
-        mode_grid.addWidget(self.clear_annotations_btn, 2, 2)
-        mode_grid.addWidget(self.remove_overlay_btn, 3, 0, 1, 3)
+        mode_grid.addWidget(self.exit_drawing_btn, 1, 0)
+        mode_grid.addWidget(self.undo_annotation_btn, 1, 1)
+        mode_grid.addWidget(self.redo_annotation_btn, 1, 2)
+        mode_grid.addWidget(self.clear_annotations_btn, 2, 0)
+        mode_grid.addWidget(self.remove_overlay_btn, 2, 1, 1, 2)
         annotation_layout.addLayout(mode_grid)
 
         hint = QLabel(
-            "Tip: Arrow/Text/Circle can annotate over the full napari window. Right-click or press Esc stops drawing but keeps existing annotations visible. Use Clear only when you want to remove marks. Clicks show a short ripple in the recording."
+            "Exit stops drawing. Clear deletes marks. Remove Overlay unloads the overlay."
         )
+        hint.setObjectName("HintLabel")
         hint.setWordWrap(True)
         annotation_layout.addWidget(hint)
         layout.addWidget(annotation_box)
 
-        self.status_label = QLabel("Status: Idle")
-        self.frame_label = QLabel("Frames: 0 | Time: 0.0 s")
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.frame_label)
+        status_box = QGroupBox("  5  Status / Activity")
+        status_layout = QVBoxLayout(status_box)
+        status_layout.setContentsMargins(12, 18, 12, 10)
+        status_layout.setSpacing(8)
 
+        chips_row = QHBoxLayout()
+        chips_row.setContentsMargins(0, 0, 0, 0)
+        chips_row.setSpacing(8)
+        self.drawing_state_chip = QLabel()
+        self.annotation_visibility_chip = QLabel()
+        self.napari_control_chip = QLabel()
+        for chip in (
+            self.drawing_state_chip,
+            self.annotation_visibility_chip,
+            self.napari_control_chip,
+        ):
+            chip.setObjectName("StatusChip")
+            chip.setAlignment(Qt.AlignCenter)
+            chips_row.addWidget(chip)
+        status_layout.addLayout(chips_row)
+
+        self.status_label = QLabel("Status: Idle")
+        self.status_label.setObjectName("StatusLine")
+        status_layout.addWidget(self.status_label)
+        layout.addWidget(status_box)
+
+        log_box = QGroupBox("  6  Log")
+        log_layout = QVBoxLayout(log_box)
+        log_layout.setContentsMargins(12, 18, 12, 10)
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        self.log_box.setMinimumHeight(150)
-        layout.addWidget(QLabel("Log:"))
-        layout.addWidget(self.log_box)
+        self.log_box.setMinimumHeight(118)
+        self.log_box.setObjectName("LogBox")
+        log_layout.addWidget(self.log_box)
+        layout.addWidget(log_box)
+
+        self._set_status_chips("off", "hidden", "ready")
+
+    def _apply_styles(self):
+        self.setStyleSheet(
+            """
+            QWidget {
+                color: #dce6f1;
+            }
+            DemoAssistantWidget {
+                background: #111820;
+                color: #dce6f1;
+                font-size: 13px;
+            }
+            QLabel {
+                color: #dce6f1;
+            }
+            QLabel#TitleLabel {
+                font-size: 20px;
+                font-weight: 700;
+            }
+            QLabel#SubtitleLabel,
+            QLabel#HintLabel,
+            QLabel#ActivityLine,
+            QLabel#StatusLine {
+                color: #aeb9c7;
+            }
+            QLabel#ActivityLine {
+                border-top: 1px solid #334250;
+                padding-top: 6px;
+            }
+            QLabel#SectionLabel {
+                color: #dce6f1;
+                font-size: 15px;
+                font-weight: 700;
+                padding-left: 6px;
+            }
+            QGroupBox {
+                border: 1px solid #334250;
+                border-radius: 8px;
+                margin-top: 10px;
+                color: #dce6f1;
+                font-size: 15px;
+                font-weight: 700;
+                background: rgba(255, 255, 255, 0.025);
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 6px;
+            }
+            QLineEdit,
+            QComboBox,
+            QSpinBox,
+            QTextEdit {
+                background: #151e27;
+                border: 1px solid #344354;
+                border-radius: 5px;
+                color: #e7eef7;
+                padding: 5px 8px;
+                selection-background-color: #207fb4;
+            }
+            QLineEdit:focus,
+            QComboBox:focus,
+            QSpinBox:focus,
+            QTextEdit:focus {
+                border-color: #35baf2;
+            }
+            QCheckBox {
+                color: #dce6f1;
+                spacing: 7px;
+            }
+            QPushButton {
+                background: #202b36;
+                border: 1px solid #3a4a5b;
+                border-radius: 6px;
+                color: #dce6f1;
+                padding: 7px 10px;
+                min-height: 24px;
+            }
+            QPushButton:hover {
+                border-color: #5a7188;
+                background: #273542;
+            }
+            QPushButton:disabled {
+                color: #778392;
+                background: #17202a;
+                border-color: #283542;
+            }
+            QPushButton#HeaderIconButton {
+                min-width: 26px;
+                max-width: 26px;
+                min-height: 26px;
+                max-height: 26px;
+                padding: 0;
+                border-radius: 13px;
+                color: #aeb9c7;
+            }
+            QPushButton#StartButton {
+                background: #154f24;
+                border-color: #38b24e;
+                color: #e8ffe9;
+                font-weight: 700;
+            }
+            QPushButton#StartButton:hover {
+                background: #1d6530;
+            }
+            QPushButton#PauseButton {
+                background: #25303b;
+                border-color: #455667;
+                color: #dce6f1;
+                font-weight: 700;
+            }
+            QPushButton#StopButton {
+                background: #4a2024;
+                border-color: #b14a53;
+                color: #ff9da6;
+                font-weight: 700;
+            }
+            QPushButton#AnnotationButton {
+                border-color: #435365;
+                min-height: 36px;
+            }
+            QPushButton#AnnotationButton:hover {
+                border-color: #35d7f3;
+                color: #7fe9ff;
+            }
+            QPushButton#AccentButton {
+                border-color: #d63aa3;
+                color: #ff75c8;
+                background: rgba(214, 58, 163, 0.10);
+            }
+            QPushButton#SecondaryButton {
+                color: #aeb9c7;
+            }
+            QLabel#StatusChip {
+                border-radius: 5px;
+                padding: 7px 10px;
+                font-weight: 700;
+            }
+            QLabel#StatusChip[state="blue"] {
+                color: #84cfff;
+                border: 1px solid #2f8bd7;
+                background: rgba(47, 139, 215, 0.12);
+            }
+            QLabel#StatusChip[state="green"] {
+                color: #8ff29a;
+                border: 1px solid #43bb55;
+                background: rgba(67, 187, 85, 0.12);
+            }
+            QLabel#StatusChip[state="gray"] {
+                color: #aeb9c7;
+                border: 1px solid #3a4a5b;
+                background: rgba(255, 255, 255, 0.035);
+            }
+            QLabel#StatusChip[state="amber"] {
+                color: #ffd86c;
+                border: 1px solid #bd9730;
+                background: rgba(189, 151, 48, 0.12);
+            }
+            QTextEdit#LogBox {
+                background: #0f151d;
+                border: 1px solid #334250;
+                border-radius: 6px;
+                color: #cdd7e3;
+                font-family: monospace;
+                font-size: 12px;
+            }
+            """
+        )
+
+    def _style_chip(self, chip: QLabel, text: str, state: str):
+        chip.setText(text)
+        chip.setProperty("state", state)
+        chip.style().unpolish(chip)
+        chip.style().polish(chip)
+
+    def _set_status_chips(
+        self,
+        drawing_state: str,
+        annotation_visibility: str,
+        napari_control_state: str,
+    ):
+        drawing_map = {
+            "off": ("◌  Drawing Off", "blue"),
+            "arrow": ("↗  Arrow Mode", "amber"),
+            "text": ("T  Text Mode", "amber"),
+            "numbered_circle": ("①  Step Mode", "amber"),
+        }
+        visibility_map = {
+            "hidden": ("◉  Annotations Hidden", "gray"),
+            "visible": ("◉  Annotations Visible", "green"),
+        }
+        control_map = {
+            "ready": ("✓  Napari Ready", "blue"),
+            "drawing": ("⌖  Drawing Active", "amber"),
+        }
+
+        self._style_chip(
+            self.drawing_state_chip,
+            *drawing_map.get(drawing_state, drawing_map["off"]),
+        )
+        self._style_chip(
+            self.annotation_visibility_chip,
+            *visibility_map.get(annotation_visibility, visibility_map["hidden"]),
+        )
+        self._style_chip(
+            self.napari_control_chip,
+            *control_map.get(napari_control_state, control_map["ready"]),
+        )
 
     def _connect_signals(self):
+        self.about_btn.clicked.connect(self.show_about)
         self.choose_output_btn.clicked.connect(self.choose_output_path)
         self.start_btn.clicked.connect(self.start_recording)
         self.pause_btn.clicked.connect(self.toggle_pause)
@@ -300,18 +660,44 @@ class DemoAssistantWidget(QWidget):
         self.start_btn.setEnabled(True)
         self.pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
-        self.pause_btn.setText("Pause")
+        self._recording_paused = False
+        self.pause_btn.setText("Ⅱ Pause")
         self._update_undo_redo_buttons()
 
     def _set_recording_state(self):
         self.start_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)
         self.stop_btn.setEnabled(True)
-        self.pause_btn.setText("Pause")
+        self._recording_paused = False
+        self.pause_btn.setText("Ⅱ Pause")
 
     def _log(self, text: str):
         timestamp = time.strftime("%H:%M:%S")
         self.log_box.append(f"[{timestamp}] {text}")
+
+    def show_about(self):
+        try:
+            version = metadata.version(PACKAGE_NAME)
+        except metadata.PackageNotFoundError:
+            version = "1.0.0"
+
+        message = QMessageBox(self)
+        message.setWindowTitle("About napari-demo-assistant")
+        message.setIcon(QMessageBox.Information)
+        message.setText(
+            "<b>napari-demo-assistant</b><br>"
+            f"Version: {version}<br>"
+            "Author: Wulin Teo"
+        )
+        message.setInformativeText(
+            "Record napari demos with arrows, labels, and numbered steps.\n\n"
+            f"Bug reports:\n{BUG_REPORT_URL}"
+        )
+        message.setStandardButtons(QMessageBox.Ok)
+        if hasattr(message, "exec"):
+            message.exec()
+        else:
+            message.exec_()
 
     def choose_output_path(self):
         start_path = self.output_line.text().strip()
@@ -364,19 +750,16 @@ class DemoAssistantWidget(QWidget):
 
         self._install_click_event_filter()
         self._update_undo_redo_buttons()
-        self.status_label.setText("Status: Annotation ready | Drawing off | Existing marks stay visible")
-        self._log("Annotation overlay prepared on the full napari window. Drawing is off; napari interaction is available. Existing annotations stay visible until Clear or Remove Overlay.")
+        self._set_status_chips("off", "visible", "ready")
+        self.status_label.setText("Status: Annotation ready. Drawing is off.")
+        self._log("Annotation ready. Drawing is off.")
 
     def deactivate_annotation_overlay(self):
         if self.overlay is not None:
-            self.overlay.hide()
-            self.overlay.deleteLater()
-            self.overlay = None
-            self.overlay_target_widget = None
-            self._remove_click_event_filter()
-            self._update_undo_redo_buttons()
-            self.status_label.setText("Status: Annotation overlay removed")
-            self._log("Annotation overlay removed.")
+            self._cleanup_annotation_overlay(
+                update_ui=True,
+                log_message="Annotation overlay removed.",
+            )
         else:
             self._log("No annotation overlay is active.")
 
@@ -394,23 +777,27 @@ class DemoAssistantWidget(QWidget):
         self.overlay.set_mode(mode)
 
         if mode == "off":
-            self.status_label.setText("Status: Drawing off | Annotations visible | Napari interaction restored")
-            self._log("Exit Drawing: annotations remain visible; napari receives mouse input normally. Right-click or Esc does the same.")
+            self._set_status_chips("off", "visible", "ready")
+            self.status_label.setText("Status: Drawing off. Napari control restored.")
+            self._log("Drawing off. Napari control restored.")
         elif mode == "arrow":
-            self.status_label.setText("Status: Draw arrow | Drag tail to head")
-            self._log("Arrow mode enabled. Drag from arrow tail to arrow head. Right-click or press Esc to exit; Ctrl+Z to undo.")
+            self._set_status_chips("arrow", "visible", "drawing")
+            self.status_label.setText("Status: Arrow mode")
+            self._log("Arrow mode: drag tail to head. Right-click/Esc to exit.")
         elif mode == "text":
-            self.status_label.setText("Status: Text stamp | Click to place text")
-            self._log("Text stamp mode enabled. Text appears only when narrative is enabled and not empty. Right-click or press Esc to exit; Ctrl+Z to undo.")
+            self._set_status_chips("text", "visible", "drawing")
+            self.status_label.setText("Status: Text mode")
+            self._log("Text mode: click to place text. Right-click/Esc to exit.")
         elif mode == "numbered_circle":
-            self.status_label.setText("Status: Numbered circle | Click to place step number")
-            self._log("Numbered circle mode enabled. Click to place the current step number. Right-click or press Esc to exit; Ctrl+Z to undo.")
+            self._set_status_chips("numbered_circle", "visible", "drawing")
+            self.status_label.setText("Status: Step mode")
+            self._log("Step mode: click to place number. Right-click/Esc to exit.")
 
     def set_annotation_palette(self, palette_name: str):
         self._save_settings()
         if self.overlay is not None:
             self.overlay.set_palette(palette_name)
-        self._log(f"Annotation palette selected: {palette_name}")
+        self._log(f"Palette selected: {palette_name}")
 
     def _update_overlay_annotation_settings(self):
         if self.overlay is not None:
@@ -441,7 +828,7 @@ class DemoAssistantWidget(QWidget):
             return
 
         if self.overlay.undo_last_annotation():
-            self._log("Undo annotation.")
+            self._log("Undo.")
         else:
             self._log("Nothing to undo.")
         self._update_undo_redo_buttons()
@@ -452,7 +839,7 @@ class DemoAssistantWidget(QWidget):
             return
 
         if self.overlay.redo_last_annotation():
-            self._log("Redo annotation.")
+            self._log("Redo.")
         else:
             self._log("Nothing to redo.")
         self._update_undo_redo_buttons()
@@ -512,12 +899,14 @@ class DemoAssistantWidget(QWidget):
         if self.worker is None:
             return
 
-        if self.pause_btn.text() == "Pause":
+        if not self._recording_paused:
             self.worker.pause()
-            self.pause_btn.setText("Resume")
+            self._recording_paused = True
+            self.pause_btn.setText("▶ Resume")
         else:
             self.worker.resume()
-            self.pause_btn.setText("Pause")
+            self._recording_paused = False
+            self.pause_btn.setText("Ⅱ Pause")
 
     def stop_recording(self):
         if self.worker is not None:
@@ -555,8 +944,7 @@ class DemoAssistantWidget(QWidget):
 
     def closeEvent(self, event):
         self._save_settings()
-        self._remove_click_event_filter()
-        self.deactivate_annotation_overlay()
+        self._cleanup_annotation_overlay(update_ui=False)
         if self.worker is not None and self.worker.isRunning():
             self.worker.stop()
         super().closeEvent(event)
@@ -599,14 +987,15 @@ class DemoAssistantWidget(QWidget):
         return {"left": left, "top": top, "width": width, "height": height}
 
     def _on_overlay_drawing_exited(self):
-        self.status_label.setText("Status: Drawing off | Annotations visible | Napari interaction restored")
+        self._set_status_chips("off", "visible", "ready")
+        self.status_label.setText("Status: Drawing off. Napari control restored.")
         self._update_undo_redo_buttons()
 
     def _on_status_changed(self, status: str):
         self.status_label.setText(f"Status: {status}")
 
     def _on_frame_captured(self, frame_index: int, elapsed: float):
-        self.frame_label.setText(f"Frames: {frame_index} | Time: {elapsed:0.1f} s")
+        self.frame_label.setText(f"▣  Frames: {frame_index}   •   ◷  Time: {elapsed:0.1f} s")
 
     def _on_recording_finished(self, path: str):
         self._set_idle_state()

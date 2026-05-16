@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napari-demo-assistant"
-version = "0.1.0"
+version = "1.0.0"
 description = "A lightweight napari plugin for recording workflow demonstration videos with live annotations and step markers."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -21,7 +21,7 @@ keywords = [
     "scientific software",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Framework :: napari",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
