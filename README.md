@@ -4,7 +4,7 @@
 
 It is designed for scientific-software demos, user support, GitHub issue feedback, tutorials, and plugin workflows such as `napari-sam3-assistant`.
 
-Current release: `1.1.0`.
+Current release: `1.2.0`.
 
 The plugin focuses on **demo recording**, not screenshot capture. Most operating systems already provide screenshot tools. The missing workflow is a simple napari-native way to record what happened and show users where to click.
 
@@ -22,6 +22,7 @@ The plugin focuses on **demo recording**, not screenshot capture. Most operating
 - Undo/redo annotations with buttons or `Ctrl+Z` / `Ctrl+Y`.
 - Save timeline step markers beside the video as `.steps.json`.
 - Optionally log clicked napari/plugin controls as an action trail beside the video.
+- Export YouTube-friendly `.srt` captions beside the video.
 - Remember the last output path and annotation color palette.
 
 ## Why this plugin exists
@@ -112,6 +113,8 @@ The plugin records MP4 video using `imageio-ffmpeg`, `mss`, OpenCV, and H.264 co
 A practical default for demos is usually `CRF 28` at `12 FPS`.
 
 When action logging is enabled, a `.actions.json` file is saved beside the video. This file records meaningful UI controls clicked during recording, such as buttons, checkboxes, combo boxes, and spin boxes. It is intended as a brief written trail for tutorials, troubleshooting, and GitHub issue feedback. Actions are still logged while recording is paused, using the current time and frame.
+
+When SRT caption export is enabled, a plain UTF-8 `.srt` file is saved beside the video for YouTube subtitle upload. Captions use manual step markers by default because they are usually cleaner for viewers. The optional `Include action clicks in captions` setting can add logged control clicks to the captions for troubleshooting videos.
 
 ## Limitations
 

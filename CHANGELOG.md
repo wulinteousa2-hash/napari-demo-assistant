@@ -9,6 +9,18 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.2.0 - 2026-05-16
+
+### Added
+
+- Added optional YouTube-friendly `.srt` caption export from step markers.
+- Added an option to include logged control clicks in exported captions.
+
+### Notes
+
+- SRT export writes plain UTF-8 SubRip captions beside the video for YouTube subtitle upload.
+- Captions use manual step markers by default so exported subtitles stay readable.
+
 ## 1.1.0 - 2026-05-16
 
 ### Added

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from importlib import metadata
 from dataclasses import asdict, dataclass
@@ -37,6 +38,7 @@ from ._recorder import ScreenRecorderWorker
 
 BUG_REPORT_URL = "https://github.com/wulinteousa2-hash/napari-demo-assistant/issues"
 PACKAGE_NAME = "napari-demo-assistant"
+CAPTION_DURATION_SEC = 3.0
 
 
 @dataclass
@@ -372,6 +374,18 @@ class DemoAssistantWidget(QWidget):
             "Save button/control clicks beside the video as an action log."
         )
 
+        self.srt_export_check = QCheckBox("Export YouTube SRT captions")
+        self.srt_export_check.setChecked(True)
+        self.srt_export_check.setToolTip(
+            "Save a plain UTF-8 .srt caption file beside the video for YouTube upload."
+        )
+
+        self.srt_actions_check = QCheckBox("Include action clicks in captions")
+        self.srt_actions_check.setChecked(False)
+        self.srt_actions_check.setToolTip(
+            "Add logged button/control clicks to the SRT captions. Leave off for cleaner tutorial subtitles."
+        )
+
         self.output_line = QLineEdit()
         self.output_line.setPlaceholderText("Choose output .mp4 path")
         self.choose_output_btn = QPushButton("Browse")
@@ -390,6 +404,8 @@ class DemoAssistantWidget(QWidget):
         settings_layout.addRow(crf_label, self.crf_spin)
         settings_layout.addRow("▣  Video overlay", self.video_text_overlay_check)
         settings_layout.addRow("☰  Action log", self.action_log_check)
+        settings_layout.addRow("CC  Captions", self.srt_export_check)
+        settings_layout.addRow("", self.srt_actions_check)
         settings_layout.addRow("▰  Output", output_row)
         settings_layout.addRow("", self.keep_output_check)
         layout.addWidget(settings_box)
@@ -855,7 +871,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.1.0"
+            version = "1.2.0"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")
@@ -1184,6 +1200,7 @@ class DemoAssistantWidget(QWidget):
         self._set_idle_state()
         self._save_steps_json()
         self._save_actions_json()
+        self._save_srt_captions()
         self._save_settings()
         QTimer.singleShot(0, self._refresh_event_filter)
         self._log(f"Recording finished: {path}")
@@ -1191,7 +1208,7 @@ class DemoAssistantWidget(QWidget):
         QMessageBox.information(
             self,
             "Recording finished",
-            f"Saved video:\n{path}\n\nSaved step markers and action log beside the video.",
+            f"Saved video:\n{path}\n\nSaved step markers, action log, and captions beside the video.",
         )
 
     def _on_recording_failed(self, error_text: str):
@@ -1247,3 +1264,72 @@ class DemoAssistantWidget(QWidget):
             self._log(f"Action log saved: {actions_path}")
         except Exception as exc:
             self._log(f"Failed to save action log: {exc}")
+
+    def _save_srt_captions(self):
+        if self.output_path is None or not self.srt_export_check.isChecked():
+            return
+
+        cues = self._build_srt_cues()
+        if not cues:
+            self._log("No caption cues to save.")
+            return
+
+        srt_path = self.output_path.with_suffix(".srt")
+        try:
+            with open(srt_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(self._format_srt(cues))
+            self._log(f"YouTube SRT captions saved: {srt_path}")
+        except Exception as exc:
+            self._log(f"Failed to save SRT captions: {exc}")
+
+    def _build_srt_cues(self) -> list[tuple[float, str]]:
+        cues: list[tuple[float, str]] = []
+
+        for step in self.steps:
+            text = self._sanitize_caption_text(step.text)
+            if text:
+                cues.append((float(step.time_sec), text))
+
+        if self.srt_actions_check.isChecked():
+            for action in self.actions:
+                text = self._sanitize_caption_text(action.text)
+                if text:
+                    cues.append((float(action.time_sec), text))
+
+        cues.sort(key=lambda cue: cue[0])
+        return cues
+
+    def _format_srt(self, cues: list[tuple[float, str]]) -> str:
+        blocks = []
+        for index, (start, text) in enumerate(cues, start=1):
+            end = self._caption_end_time(cues, index - 1)
+            blocks.append(
+                f"{index}\n"
+                f"{self._format_srt_timestamp(start)} --> {self._format_srt_timestamp(end)}\n"
+                f"{text}"
+            )
+        return "\n\n".join(blocks) + "\n"
+
+    def _caption_end_time(self, cues: list[tuple[float, str]], index: int) -> float:
+        start = max(0.0, cues[index][0])
+        default_end = start + CAPTION_DURATION_SEC
+
+        if index + 1 >= len(cues):
+            return default_end
+
+        next_start = max(0.0, cues[index + 1][0])
+        if next_start <= start:
+            return start + 1.0
+
+        return min(default_end, max(start + 1.0, next_start - 0.1))
+
+    def _format_srt_timestamp(self, seconds: float) -> str:
+        total_ms = max(0, int(round(seconds * 1000)))
+        hours, remainder = divmod(total_ms, 3_600_000)
+        minutes, remainder = divmod(remainder, 60_000)
+        secs, millis = divmod(remainder, 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+    def _sanitize_caption_text(self, text: str) -> str:
+        text = re.sub(r"\s+", " ", text or "").strip()
+        return text.replace("<", "").replace(">", "")
