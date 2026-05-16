@@ -7,11 +7,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
-from qtpy.QtCore import QEvent, QSettings, Qt
+from qtpy.QtCore import QEvent, QSettings, QTimer, Qt
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QApplication,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -21,9 +22,11 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSpinBox,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -44,6 +47,19 @@ class StepMarker:
     timestamp: str
 
 
+@dataclass
+class ActionMarker:
+    time_sec: float
+    frame_index: int
+    timestamp: str
+    widget_type: str
+    text: str
+    tooltip: str
+    object_name: str
+    parent_type: str
+    action: str
+
+
 class DemoAssistantWidget(QWidget):
     def __init__(self, napari_viewer):
         super().__init__()
@@ -51,6 +67,7 @@ class DemoAssistantWidget(QWidget):
 
         self.worker: Optional[ScreenRecorderWorker] = None
         self.steps: list[StepMarker] = []
+        self.actions: list[ActionMarker] = []
         self.current_step_text = ""
         self.output_path: Optional[Path] = None
 
@@ -58,6 +75,8 @@ class DemoAssistantWidget(QWidget):
         self.overlay_target_widget: Optional[QWidget] = None
         self._click_event_filter_installed = False
         self._recording_paused = False
+        self._last_logged_action_key = None
+        self._last_logged_action_time = 0.0
 
         self.settings = QSettings("napari-demo-assistant", "napari-demo-assistant")
 
@@ -69,25 +88,14 @@ class DemoAssistantWidget(QWidget):
         self.destroyed.connect(self._on_destroyed)
 
     def eventFilter(self, obj, event):
-        """Draw transient click ripples for video emphasis without blocking Qt events."""
+        """Draw click ripples and record UI actions without blocking Qt events."""
         if (
-            self.overlay is not None
-            and self.overlay_target_widget is not None
-            and event.type() == QEvent.MouseButtonPress
+            event.type() == QEvent.MouseButtonPress
             and hasattr(event, "button")
             and event.button() == Qt.LeftButton
         ):
-            try:
-                if hasattr(event, "globalPosition"):
-                    global_pos = event.globalPosition().toPoint()
-                else:
-                    global_pos = event.globalPos()
-
-                self._sync_overlay_geometry()
-                self.overlay.add_click_ripple_at_global(global_pos)
-            except Exception:
-                # Never let the visual demo aid interfere with napari/user events.
-                pass
+            self._maybe_add_click_ripple(event)
+            self._maybe_log_action(obj)
 
         return super().eventFilter(obj, event)
 
@@ -114,6 +122,17 @@ class DemoAssistantWidget(QWidget):
             app.removeEventFilter(self)
         self._click_event_filter_installed = False
 
+    def _refresh_event_filter(self):
+        action_logging_needed = (
+            hasattr(self, "action_log_check")
+            and self.action_log_check.isChecked()
+            and self._is_recording_active()
+        )
+        if self.overlay is not None or action_logging_needed:
+            self._install_click_event_filter()
+        else:
+            self._remove_click_event_filter()
+
     def _cleanup_annotation_overlay(self, update_ui: bool = True, log_message: Optional[str] = None):
         if self.overlay is not None:
             self.overlay.hide()
@@ -137,6 +156,152 @@ class DemoAssistantWidget(QWidget):
         if self.overlay is not None and self.overlay_target_widget is not None:
             self.overlay.setGeometry(self.overlay_target_widget.rect())
             self.overlay.raise_()
+
+    def _is_recording_active(self) -> bool:
+        return self.worker is not None and self.worker.isRunning()
+
+    def _maybe_add_click_ripple(self, event):
+        if self.overlay is None or self.overlay_target_widget is None:
+            return
+
+        try:
+            if hasattr(event, "globalPosition"):
+                global_pos = event.globalPosition().toPoint()
+            else:
+                global_pos = event.globalPos()
+
+            self._sync_overlay_geometry()
+            self.overlay.add_click_ripple_at_global(global_pos)
+        except Exception:
+            # Never let the visual demo aid interfere with napari/user events.
+            pass
+
+    def _maybe_log_action(self, obj):
+        if not self.action_log_check.isChecked() or not self._is_recording_active():
+            return
+
+        try:
+            if self._is_overlay_event_object(obj):
+                return
+
+            widget = self._find_loggable_widget(obj)
+            if widget is None:
+                return
+
+            self._record_action_from_widget(widget)
+        except Exception as exc:
+            self._log(f"Action log skipped: {exc}")
+
+    def _is_overlay_event_object(self, obj) -> bool:
+        if self.overlay is None:
+            return False
+
+        current = obj
+        while current is not None:
+            if current is self.overlay:
+                return True
+            current = current.parent() if hasattr(current, "parent") else None
+        return False
+
+    def _find_loggable_widget(self, obj):
+        loggable_types = (
+            QPushButton,
+            QToolButton,
+            QCheckBox,
+            QRadioButton,
+            QComboBox,
+            QSpinBox,
+            QDoubleSpinBox,
+            QLineEdit,
+        )
+
+        current = obj
+        while current is not None:
+            if isinstance(current, loggable_types):
+                return current
+            current = current.parent() if hasattr(current, "parent") else None
+        return None
+
+    def _describe_widget_action(self, widget) -> dict:
+        widget_type = widget.__class__.__name__
+        tooltip = widget.toolTip() if hasattr(widget, "toolTip") else ""
+        object_name = widget.objectName() if hasattr(widget, "objectName") else ""
+        parent = widget.parent() if hasattr(widget, "parent") else None
+        parent_type = parent.__class__.__name__ if parent is not None else ""
+
+        action = "click"
+        text = ""
+
+        if isinstance(widget, QComboBox):
+            action = "combo_open"
+            text = widget.currentText() or object_name or "Combo box"
+        elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+            action = "spin_focus"
+            if widget is self.fps_spin:
+                text = f"FPS = {widget.value()}"
+            elif widget is self.crf_spin:
+                text = f"CRF = {widget.value()}"
+            elif object_name:
+                text = f"{object_name} = {widget.value()}"
+            else:
+                text = f"Value = {widget.value()}"
+        elif isinstance(widget, QLineEdit):
+            action = "click"
+            label = widget.placeholderText() or object_name
+            text = f"Focused text field: {label}" if label else "Focused text field"
+        elif isinstance(widget, (QCheckBox, QRadioButton)):
+            action = "toggle"
+            text = widget.text() or object_name or widget_type
+        elif hasattr(widget, "text"):
+            text = widget.text() or object_name or widget_type
+        else:
+            text = object_name or widget_type
+
+        return {
+            "widget_type": widget_type,
+            "text": text,
+            "tooltip": tooltip,
+            "object_name": object_name,
+            "parent_type": parent_type,
+            "action": action,
+        }
+
+    def _record_action_from_widget(self, widget):
+        info = self._describe_widget_action(widget)
+        action_key = (
+            info["widget_type"],
+            info["text"],
+            info["object_name"],
+        )
+        now = time.monotonic()
+        if (
+            self._last_logged_action_key == action_key
+            and now - self._last_logged_action_time < 0.25
+        ):
+            return
+
+        self._last_logged_action_key = action_key
+        self._last_logged_action_time = now
+
+        elapsed = 0.0
+        frame_index = 0
+        if self.worker is not None:
+            elapsed = round(self.worker.elapsed_sec, 3)
+            frame_index = int(self.worker.frame_index)
+
+        action = ActionMarker(
+            time_sec=elapsed,
+            frame_index=frame_index,
+            timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
+            widget_type=info["widget_type"],
+            text=info["text"],
+            tooltip=info["tooltip"],
+            object_name=info["object_name"],
+            parent_type=info["parent_type"],
+            action=info["action"],
+        )
+        self.actions.append(action)
+        self._log(f'Action logged: {action.widget_type} "{action.text}"')
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -201,6 +366,12 @@ class DemoAssistantWidget(QWidget):
         self.video_text_overlay_check = QCheckBox("Elapsed time / step text on video")
         self.video_text_overlay_check.setChecked(True)
 
+        self.action_log_check = QCheckBox("Log clicked controls")
+        self.action_log_check.setChecked(True)
+        self.action_log_check.setToolTip(
+            "Save button/control clicks beside the video as an action log."
+        )
+
         self.output_line = QLineEdit()
         self.output_line.setPlaceholderText("Choose output .mp4 path")
         self.choose_output_btn = QPushButton("Browse")
@@ -218,6 +389,7 @@ class DemoAssistantWidget(QWidget):
         settings_layout.addRow("◴  FPS", self.fps_spin)
         settings_layout.addRow(crf_label, self.crf_spin)
         settings_layout.addRow("▣  Video overlay", self.video_text_overlay_check)
+        settings_layout.addRow("☰  Action log", self.action_log_check)
         settings_layout.addRow("▰  Output", output_row)
         settings_layout.addRow("", self.keep_output_check)
         layout.addWidget(settings_box)
@@ -625,10 +797,14 @@ class DemoAssistantWidget(QWidget):
         self.remove_overlay_btn.clicked.connect(self.deactivate_annotation_overlay)
         self.clear_annotations_btn.clicked.connect(self.clear_annotations)
         self.palette_combo.currentTextChanged.connect(self.set_annotation_palette)
+        self.action_log_check.toggled.connect(self._on_action_logging_toggled)
 
         self.step_input.textChanged.connect(self._update_overlay_annotation_settings)
         self.narrative_check.toggled.connect(self._update_overlay_annotation_settings)
         self.step_number_spin.valueChanged.connect(self._update_overlay_number)
+
+    def _on_action_logging_toggled(self, _checked: bool):
+        self._refresh_event_filter()
 
     def _load_settings(self):
         last_output_path = self.settings.value("last_output_path", "", type=str)
@@ -679,7 +855,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.0.0"
+            version = "1.1.0"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")
@@ -760,6 +936,7 @@ class DemoAssistantWidget(QWidget):
                 update_ui=True,
                 log_message="Annotation overlay removed.",
             )
+            self._refresh_event_filter()
         else:
             self._log("No annotation overlay is active.")
 
@@ -872,7 +1049,10 @@ class DemoAssistantWidget(QWidget):
             return
 
         self.steps = []
+        self.actions = []
         self.current_step_text = ""
+        self._last_logged_action_key = None
+        self._last_logged_action_time = 0.0
 
         self.worker = ScreenRecorderWorker(
             output_path=self.output_path,
@@ -891,6 +1071,9 @@ class DemoAssistantWidget(QWidget):
         self.worker.start()
 
         self._set_recording_state()
+        self._refresh_event_filter()
+        if self.action_log_check.isChecked():
+            self._record_action_from_widget(self.start_btn)
         self._log(f"Recording started: {self.output_path}")
         self._log(f"Capture region: {bbox}")
         self._log(f"Compression: H.264 CRF={self.crf_spin.value()}, FPS={self.fps_spin.value()}")
@@ -1000,17 +1183,20 @@ class DemoAssistantWidget(QWidget):
     def _on_recording_finished(self, path: str):
         self._set_idle_state()
         self._save_steps_json()
+        self._save_actions_json()
         self._save_settings()
+        QTimer.singleShot(0, self._refresh_event_filter)
         self._log(f"Recording finished: {path}")
 
         QMessageBox.information(
             self,
             "Recording finished",
-            f"Saved video:\n{path}\n\nSaved step markers beside the video.",
+            f"Saved video:\n{path}\n\nSaved step markers and action log beside the video.",
         )
 
     def _on_recording_failed(self, error_text: str):
         self._set_idle_state()
+        QTimer.singleShot(0, self._refresh_event_filter)
         self._log("Recording failed.")
         self._log(error_text)
         QMessageBox.critical(self, "Recording failed", error_text)
@@ -1036,3 +1222,28 @@ class DemoAssistantWidget(QWidget):
             self._log(f"Step markers saved: {steps_path}")
         except Exception as exc:
             self._log(f"Failed to save step markers: {exc}")
+
+    def _save_actions_json(self):
+        if self.output_path is None:
+            return
+
+        if not self.action_log_check.isChecked() and not self.actions:
+            return
+
+        actions_path = self.output_path.with_suffix(".actions.json")
+        payload = {
+            "schema_version": "0.1",
+            "video_path": str(self.output_path),
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "fps": self.fps_spin.value(),
+            "crf": self.crf_spin.value(),
+            "target": self.target_combo.currentText(),
+            "actions": [asdict(action) for action in self.actions],
+        }
+
+        try:
+            with open(actions_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            self._log(f"Action log saved: {actions_path}")
+        except Exception as exc:
+            self._log(f"Failed to save action log: {exc}")

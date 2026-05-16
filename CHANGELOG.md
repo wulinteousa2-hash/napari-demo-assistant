@@ -9,6 +9,17 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.1.0 - 2026-05-16
+
+### Added
+
+- Added optional action logging for clicked napari/plugin controls.
+- Added `.actions.json` export beside recorded videos.
+
+### Notes
+
+- Action logging is optional and records meaningful Qt controls during recording without blocking normal napari or plugin interactions.
+
 ## 1.0.0 - 2026-05-16
 
 First stable release.
