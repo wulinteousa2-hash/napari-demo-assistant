@@ -124,6 +124,7 @@ When SRT caption export is enabled, a plain UTF-8 `.srt` file is saved beside th
 - Audio recording is not included.
 - Screenshot capture is not a major feature because most operating systems already provide it.
 - Very large windows, high FPS, or low CRF values can produce large video files.
+- Very large capture regions may fail on some Linux/X11 or high-resolution display setups. If full-window recording fails, resize napari smaller, move it fully onto the monitor, or use `Viewer canvas only`.
 
 ## License
 

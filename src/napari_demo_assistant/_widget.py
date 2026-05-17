@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
+import mss
 from qtpy.QtCore import QEvent, QSettings, QTimer, Qt
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -1059,6 +1060,12 @@ class DemoAssistantWidget(QWidget):
 
         try:
             bbox = self._get_capture_bbox()
+            self._log(
+                "Capture region: "
+                f"left={bbox['left']}, top={bbox['top']}, "
+                f"width={bbox['width']}, height={bbox['height']}"
+            )
+            self._preflight_capture_bbox(bbox)
         except Exception as exc:
             QMessageBox.critical(self, "Capture Error", str(exc))
             self._log(f"Capture region error: {exc}")
@@ -1091,7 +1098,6 @@ class DemoAssistantWidget(QWidget):
         if self.action_log_check.isChecked():
             self._record_action_from_widget(self.start_btn)
         self._log(f"Recording started: {self.output_path}")
-        self._log(f"Capture region: {bbox}")
         self._log(f"Compression: H.264 CRF={self.crf_spin.value()}, FPS={self.fps_spin.value()}")
 
     def toggle_pause(self):
@@ -1184,6 +1190,30 @@ class DemoAssistantWidget(QWidget):
             )
 
         return {"left": left, "top": top, "width": width, "height": height}
+
+    def _preflight_capture_bbox(self, bbox: dict):
+        try:
+            with mss.mss() as sct:
+                monitors = sct.monitors
+                monitor = monitors[0]
+                self._log(
+                    "Screen bounds: "
+                    f"left={monitor.get('left', 0)}, top={monitor.get('top', 0)}, "
+                    f"width={monitor['width']}, height={monitor['height']}"
+                )
+                sct.grab(bbox)
+        except Exception as exc:
+            raise RuntimeError(
+                "The selected recording area could not be captured.\n\n"
+                "Try one of these:\n"
+                "- Resize the napari window smaller.\n"
+                "- Move the window fully onto the monitor.\n"
+                '- Select "Viewer canvas only" instead of "Full napari window".\n'
+                "- Lower FPS if recording is slow.\n\n"
+                f"Capture region: left={bbox['left']}, top={bbox['top']}, "
+                f"width={bbox['width']}, height={bbox['height']}\n"
+                f"Recorder error: {exc}"
+            ) from exc
 
     def _on_overlay_drawing_exited(self):
         self._set_status_chips("off", "visible", "ready")
