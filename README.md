@@ -6,6 +6,8 @@ It is designed for scientific-software demos, user support, GitHub issue feedbac
 
 Current release: `1.2.0`.
 
+![napari-demo-assistant dock widget](docs/ui.png)
+
 The plugin focuses on **demo recording**, not screenshot capture. Most operating systems already provide screenshot tools. The missing workflow is a simple napari-native way to record what happened and show users where to click.
 
 ## Key features
