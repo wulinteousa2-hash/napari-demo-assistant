@@ -118,6 +118,7 @@ class AnnotationOverlay(QWidget):
     - numbered_circle: click to place a numbered high-contrast circle.
     - circle: drag from center to edge to size a circle without a number.
     - rectangle: drag from one corner to the opposite corner.
+    - move: drag an existing annotation to reposition it.
 
     Mouse shortcut:
     - right click: exits drawing mode but keeps existing annotations visible.
@@ -157,6 +158,8 @@ class AnnotationOverlay(QWidget):
 
         self._drag_start: Optional[QPoint] = None
         self._drag_current: Optional[QPoint] = None
+        self._move_target: Optional[tuple[str, object]] = None
+        self._move_last_pos: Optional[QPoint] = None
 
         self._ripple_timer = QTimer(self)
         self._ripple_timer.setInterval(16)
@@ -176,6 +179,8 @@ class AnnotationOverlay(QWidget):
             self.clearFocus()
             self._drag_start = None
             self._drag_current = None
+            self._move_target = None
+            self._move_last_pos = None
             self.show()
             self.raise_()
             self.update()
@@ -231,6 +236,8 @@ class AnnotationOverlay(QWidget):
         self._redo_stack.clear()
         self._drag_start = None
         self._drag_current = None
+        self._move_target = None
+        self._move_last_pos = None
         self.update()
         self.annotation_changed.emit()
 
@@ -353,6 +360,12 @@ class AnnotationOverlay(QWidget):
             event.accept()
             return
 
+        if self.mode == "move":
+            self._move_target = self._find_annotation_at(event.pos())
+            self._move_last_pos = event.pos() if self._move_target is not None else None
+            event.accept()
+            return
+
         if self.mode == "text":
             if self.show_narrative:
                 annotation = TextAnnotation(
@@ -382,6 +395,15 @@ class AnnotationOverlay(QWidget):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self.mode == "move" and self._move_target is not None and self._move_last_pos is not None:
+            delta = event.pos() - self._move_last_pos
+            if delta.x() or delta.y():
+                self._move_annotation(self._move_target[0], self._move_target[1], delta.x(), delta.y())
+                self._move_last_pos = event.pos()
+                self.update()
+            event.accept()
+            return
+
         if self.mode in ("arrow", "circle", "rectangle") and self._drag_start is not None:
             self._drag_current = event.pos()
             self.update()
@@ -391,6 +413,13 @@ class AnnotationOverlay(QWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if self.mode == "move" and self._move_target is not None:
+            self._move_target = None
+            self._move_last_pos = None
+            self.annotation_changed.emit()
+            event.accept()
+            return
+
         if self.mode == "arrow" and self._drag_start is not None:
             start = self._drag_start
             end = event.pos()
@@ -573,6 +602,90 @@ class AnnotationOverlay(QWidget):
         painter.setPen(pen)
         painter.setBrush(Qt.NoBrush if self.shape_fill_transparent else self.palette.background)
         painter.drawRect(rect)
+
+    def _find_annotation_at(self, pos: QPoint) -> Optional[tuple[str, object]]:
+        for kind, annotation in reversed(self._annotation_order):
+            if kind == "arrow" and self._point_near_segment(
+                pos,
+                QPoint(*annotation.start),
+                QPoint(*annotation.end),
+                12,
+            ):
+                return kind, annotation
+            if kind == "text" and self._text_hit_rect(annotation).contains(pos):
+                return kind, annotation
+            if kind == "numbered_circle" and self._point_in_circle(
+                pos,
+                QPoint(*annotation.center),
+                annotation.radius + 8,
+            ):
+                return kind, annotation
+            if kind == "circle" and self._point_in_circle(
+                pos,
+                QPoint(*annotation.center),
+                annotation.radius + 8,
+            ):
+                return kind, annotation
+            if kind == "rectangle" and self._rectangle_hit_rect(annotation).contains(pos):
+                return kind, annotation
+        return None
+
+    def _move_annotation(self, kind: str, annotation: object, dx: int, dy: int):
+        if kind == "arrow":
+            annotation.start = (annotation.start[0] + dx, annotation.start[1] + dy)
+            annotation.end = (annotation.end[0] + dx, annotation.end[1] + dy)
+        elif kind == "text":
+            annotation.pos = (annotation.pos[0] + dx, annotation.pos[1] + dy)
+        elif kind in ("numbered_circle", "circle"):
+            annotation.center = (annotation.center[0] + dx, annotation.center[1] + dy)
+        elif kind == "rectangle":
+            annotation.start = (annotation.start[0] + dx, annotation.start[1] + dy)
+            annotation.end = (annotation.end[0] + dx, annotation.end[1] + dy)
+
+    def _point_in_circle(self, pos: QPoint, center: QPoint, radius: int) -> bool:
+        dx = pos.x() - center.x()
+        dy = pos.y() - center.y()
+        return dx * dx + dy * dy <= radius * radius
+
+    def _rectangle_hit_rect(self, rectangle: RectangleAnnotation) -> QRect:
+        return QRect(QPoint(*rectangle.start), QPoint(*rectangle.end)).normalized().adjusted(-8, -8, 8, 8)
+
+    def _text_hit_rect(self, annotation: TextAnnotation) -> QRect:
+        label_font = QFont()
+        label_font.setPointSize(16)
+        label_font.setBold(True)
+        metrics = QFontMetrics(label_font)
+        text_width = metrics.horizontalAdvance(annotation.text)
+        text_height = metrics.height()
+        padding_x = 10
+        padding_y = 7
+        x = annotation.pos[0]
+        y = annotation.pos[1] - text_height
+        return QRect(
+            x,
+            y,
+            max(text_width + padding_x * 2, 80),
+            text_height + padding_y * 2,
+        ).adjusted(-6, -6, 6, 6)
+
+    def _point_near_segment(self, pos: QPoint, start: QPoint, end: QPoint, tolerance: int) -> bool:
+        px = pos.x()
+        py = pos.y()
+        x1 = start.x()
+        y1 = start.y()
+        x2 = end.x()
+        y2 = end.y()
+        dx = x2 - x1
+        dy = y2 - y1
+        length_sq = dx * dx + dy * dy
+        if length_sq <= 0:
+            return self._point_in_circle(pos, start, tolerance)
+        t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / length_sq))
+        nearest_x = x1 + t * dx
+        nearest_y = y1 + t * dy
+        dist_x = px - nearest_x
+        dist_y = py - nearest_y
+        return dist_x * dist_x + dist_y * dist_y <= tolerance * tolerance
 
     def _radius_between(self, start: QPoint, end: QPoint) -> int:
         dx = end.x() - start.x()

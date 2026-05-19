@@ -671,8 +671,7 @@ class DemoAssistantWidget(QWidget):
         )
         style_grid.addWidget(QLabel("◉  Palette"), 0, 0)
         style_grid.addWidget(self.palette_combo, 0, 1)
-        style_grid.addWidget(QLabel("□  Shape fill"), 1, 0)
-        style_grid.addWidget(self.transparent_shape_check, 1, 1)
+        style_grid.addWidget(self.transparent_shape_check, 1, 0, 1, 2)
         style_grid.setColumnStretch(2, 1)
         annotation_layout.addLayout(style_grid)
 
@@ -685,6 +684,7 @@ class DemoAssistantWidget(QWidget):
         self.numbered_circle_btn = QPushButton("① Step")
         self.circle_btn = QPushButton("○ Circle")
         self.rectangle_btn = QPushButton("▭ Rectangle")
+        self.move_annotation_btn = QPushButton("✥ Move")
         self.exit_drawing_btn = QPushButton("⌖ Exit")
         self.undo_annotation_btn = QPushButton("↶ Undo")
         self.redo_annotation_btn = QPushButton("↷ Redo")
@@ -709,6 +709,7 @@ class DemoAssistantWidget(QWidget):
             self.numbered_circle_btn,
             self.circle_btn,
             self.rectangle_btn,
+            self.move_annotation_btn,
             self.exit_drawing_btn,
             self.undo_annotation_btn,
             self.redo_annotation_btn,
@@ -724,11 +725,12 @@ class DemoAssistantWidget(QWidget):
         mode_grid.addWidget(self.numbered_circle_btn, 0, 2)
         mode_grid.addWidget(self.circle_btn, 1, 0)
         mode_grid.addWidget(self.rectangle_btn, 1, 1)
-        mode_grid.addWidget(self.exit_drawing_btn, 1, 2)
-        mode_grid.addWidget(self.undo_annotation_btn, 2, 0)
-        mode_grid.addWidget(self.redo_annotation_btn, 2, 1)
-        mode_grid.addWidget(self.clear_annotations_btn, 2, 2)
-        mode_grid.addWidget(self.remove_overlay_btn, 3, 0, 1, 3)
+        mode_grid.addWidget(self.move_annotation_btn, 1, 2)
+        mode_grid.addWidget(self.exit_drawing_btn, 2, 0)
+        mode_grid.addWidget(self.undo_annotation_btn, 2, 1)
+        mode_grid.addWidget(self.redo_annotation_btn, 2, 2)
+        mode_grid.addWidget(self.clear_annotations_btn, 3, 0)
+        mode_grid.addWidget(self.remove_overlay_btn, 3, 1, 1, 2)
         annotation_layout.addLayout(mode_grid)
 
         hint = QLabel(
@@ -1016,6 +1018,7 @@ class DemoAssistantWidget(QWidget):
             "numbered_circle": ("①  Step Mode", "amber"),
             "circle": ("○  Circle Mode", "amber"),
             "rectangle": ("▭  Rectangle Mode", "amber"),
+            "move": ("✥  Move Mode", "amber"),
         }
         visibility_map = {
             "hidden": ("◉  Annotations Hidden", "gray"),
@@ -1053,6 +1056,7 @@ class DemoAssistantWidget(QWidget):
         self.numbered_circle_btn.clicked.connect(lambda: self.set_annotation_mode("numbered_circle"))
         self.circle_btn.clicked.connect(lambda: self.set_annotation_mode("circle"))
         self.rectangle_btn.clicked.connect(lambda: self.set_annotation_mode("rectangle"))
+        self.move_annotation_btn.clicked.connect(lambda: self.set_annotation_mode("move"))
         self.exit_drawing_btn.clicked.connect(lambda: self.set_annotation_mode("off"))
         self.undo_annotation_btn.clicked.connect(self.undo_annotation)
         self.redo_annotation_btn.clicked.connect(self.redo_annotation)
@@ -1284,6 +1288,10 @@ class DemoAssistantWidget(QWidget):
             self._set_status_chips("rectangle", "visible", "drawing")
             self.status_label.setText("Status: Rectangle mode")
             self._log("Rectangle mode: drag corner to corner. Right-click/Esc to exit.")
+        elif mode == "move":
+            self._set_status_chips("move", "visible", "drawing")
+            self.status_label.setText("Status: Move mode")
+            self._log("Move mode: drag an existing annotation. Right-click/Esc to exit.")
 
     def set_annotation_palette(self, palette_name: str):
         self._save_settings()
