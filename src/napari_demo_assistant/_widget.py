@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import Optional
 
 import mss
-from qtpy.QtCore import QEvent, QSettings, QTimer, Qt
+from qtpy.QtCore import QEvent, QPoint, QSettings, QTimer, Qt
 from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QApplication,
     QDoubleSpinBox,
+    QDockWidget,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -66,6 +67,7 @@ class ActionMarker:
 class DemoAssistantWidget(QWidget):
     def __init__(self, napari_viewer):
         super().__init__()
+        self.setWindowTitle("Demo Assistant")
         self.viewer = napari_viewer
 
         self.worker: Optional[ScreenRecorderWorker] = None
@@ -80,6 +82,9 @@ class DemoAssistantWidget(QWidget):
         self._recording_paused = False
         self._last_logged_action_key = None
         self._last_logged_action_time = 0.0
+        self._detached_drag_widgets: set[QWidget] = set()
+        self._detached_drag_target: Optional[QWidget] = None
+        self._detached_drag_offset: Optional[QPoint] = None
 
         self.settings = QSettings("napari-demo-assistant", "napari-demo-assistant")
 
@@ -88,10 +93,14 @@ class DemoAssistantWidget(QWidget):
         self._connect_signals()
         self._load_settings()
         self._set_idle_state()
+        QTimer.singleShot(0, self._configure_parent_dock)
         self.destroyed.connect(self._on_destroyed)
 
     def eventFilter(self, obj, event):
         """Draw click ripples and record UI actions without blocking Qt events."""
+        if self._handle_detached_drag_event(obj, event):
+            return True
+
         if (
             event.type() == QEvent.MouseButtonPress
             and hasattr(event, "button")
@@ -101,6 +110,78 @@ class DemoAssistantWidget(QWidget):
             self._maybe_log_action(obj)
 
         return super().eventFilter(obj, event)
+
+    def _register_detached_drag_widget(self, widget: QWidget):
+        self._detached_drag_widgets.add(widget)
+        widget.installEventFilter(self)
+        widget.setCursor(Qt.OpenHandCursor)
+        widget.setToolTip("Drag here to move the detached Demo Assistant window.")
+
+    def _configure_parent_dock(self):
+        dock = self._find_parent_dock()
+        if dock is None:
+            return
+
+        if hasattr(dock, "setWindowTitle"):
+            dock.setWindowTitle("Demo Assistant")
+
+        if hasattr(dock, "setFeatures") and hasattr(QDockWidget, "DockWidgetMovable"):
+            dock.setFeatures(
+                QDockWidget.DockWidgetClosable
+                | QDockWidget.DockWidgetMovable
+                | QDockWidget.DockWidgetFloatable
+            )
+
+    def _find_parent_dock(self) -> Optional[QDockWidget]:
+        current = self.parent()
+        while current is not None:
+            if isinstance(current, QDockWidget):
+                return current
+            current = current.parent() if hasattr(current, "parent") else None
+        return None
+
+    def _event_global_pos(self, event) -> QPoint:
+        if hasattr(event, "globalPosition"):
+            return event.globalPosition().toPoint()
+        return event.globalPos()
+
+    def _floating_drag_target(self) -> Optional[QWidget]:
+        dock = self._find_parent_dock()
+        if dock is not None and dock.isFloating():
+            return dock
+
+        return None
+
+    def _handle_detached_drag_event(self, obj, event) -> bool:
+        if obj not in self._detached_drag_widgets:
+            return False
+
+        event_type = event.type()
+        if event_type == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            target = self._floating_drag_target()
+            if target is None:
+                return False
+            self._detached_drag_target = target
+            self._detached_drag_offset = self._event_global_pos(event) - target.pos()
+            target.raise_()
+            obj.setCursor(Qt.ClosedHandCursor)
+            return True
+
+        if event_type == QEvent.MouseMove and self._detached_drag_target is not None:
+            if event.buttons() & Qt.LeftButton and self._detached_drag_offset is not None:
+                self._detached_drag_target.move(
+                    self._event_global_pos(event) - self._detached_drag_offset
+                )
+                return True
+
+        if event_type == QEvent.MouseButtonRelease:
+            if self._detached_drag_target is not None:
+                self._detached_drag_target = None
+                self._detached_drag_offset = None
+                obj.setCursor(Qt.OpenHandCursor)
+                return True
+
+        return False
 
     def hideEvent(self, event):
         self._cleanup_annotation_overlay(
@@ -331,6 +412,8 @@ class DemoAssistantWidget(QWidget):
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
         header_layout.addWidget(title_block, stretch=1)
+        for drag_widget in (header, title_block, title, subtitle):
+            self._register_detached_drag_widget(drag_widget)
 
         self.about_btn = QPushButton("⋮")
         self.about_btn.setObjectName("HeaderIconButton")
@@ -872,7 +955,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.2.0"
+            version = "1.2.1"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")

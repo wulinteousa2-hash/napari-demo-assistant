@@ -9,6 +9,12 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.2.1 - 2026-05-19
+
+### Fixed
+
+- Made the detached Demo Assistant dock easier to move by allowing the widget header/title area to drag the floating napari dock window.
+
 ## 1.2.0 - 2026-05-16
 
 ### Added

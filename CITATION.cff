@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use napari-demo-assistant in your work, please cite it using this metadata."
 type: software
 title: "napari-demo-assistant"
-version: "0.1.0"
-date-released: "2026-05-16"
+version: "1.2.1"
+date-released: "2026-05-19"
 authors:
   - family-names: "Teo"
     given-names: "Wulin"
