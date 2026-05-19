@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-from qtpy.QtCore import QPoint, Qt, QTimer, Signal
+from qtpy.QtCore import QPoint, QRect, Qt, QTimer, Signal
 from qtpy.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from qtpy.QtWidgets import QWidget
 
@@ -27,6 +27,20 @@ class NumberedCircleAnnotation:
     center: tuple[int, int]
     number: int
     radius: int = 34
+    text: str = ""
+
+
+@dataclass
+class CircleAnnotation:
+    center: tuple[int, int]
+    radius: int = 34
+    text: str = ""
+
+
+@dataclass
+class RectangleAnnotation:
+    start: tuple[int, int]
+    end: tuple[int, int]
     text: str = ""
 
 
@@ -102,6 +116,8 @@ class AnnotationOverlay(QWidget):
     - arrow: drag from arrow tail to arrow head. Optional narrative text is drawn at the tail.
     - text: click to place optional narrative text.
     - numbered_circle: click to place a numbered high-contrast circle.
+    - circle: click to place a high-contrast circle without a number.
+    - rectangle: drag from one corner to the opposite corner.
 
     Mouse shortcut:
     - right click: exits drawing mode but keeps existing annotations visible.
@@ -128,6 +144,8 @@ class AnnotationOverlay(QWidget):
         self.arrows: list[ArrowAnnotation] = []
         self.texts: list[TextAnnotation] = []
         self.numbered_circles: list[NumberedCircleAnnotation] = []
+        self.circles: list[CircleAnnotation] = []
+        self.rectangles: list[RectangleAnnotation] = []
         self.click_ripples: list[ClickRipple] = []
 
         # Append-only drawing order for simple undo/redo.
@@ -202,6 +220,8 @@ class AnnotationOverlay(QWidget):
         self.arrows.clear()
         self.texts.clear()
         self.numbered_circles.clear()
+        self.circles.clear()
+        self.rectangles.clear()
         self._annotation_order.clear()
         self._redo_stack.clear()
         self._drag_start = None
@@ -243,6 +263,10 @@ class AnnotationOverlay(QWidget):
             self.texts.append(annotation)
         elif kind == "numbered_circle":
             self.numbered_circles.append(annotation)
+        elif kind == "circle":
+            self.circles.append(annotation)
+        elif kind == "rectangle":
+            self.rectangles.append(annotation)
         else:
             raise ValueError(f"Unknown annotation kind: {kind}")
 
@@ -258,6 +282,10 @@ class AnnotationOverlay(QWidget):
             target_list = self.texts
         elif kind == "numbered_circle":
             target_list = self.numbered_circles
+        elif kind == "circle":
+            target_list = self.circles
+        elif kind == "rectangle":
+            target_list = self.rectangles
         else:
             return
 
@@ -314,7 +342,7 @@ class AnnotationOverlay(QWidget):
             event.accept()
             return
 
-        if self.mode == "arrow":
+        if self.mode in ("arrow", "rectangle"):
             self._drag_start = event.pos()
             self._drag_current = event.pos()
             event.accept()
@@ -346,10 +374,22 @@ class AnnotationOverlay(QWidget):
             event.accept()
             return
 
+        if self.mode == "circle":
+            annotation = CircleAnnotation(
+                center=(event.pos().x(), event.pos().y()),
+                radius=34,
+                text=self.narrative_text if self.show_narrative else "",
+            )
+            self._append_annotation("circle", annotation)
+            self.update()
+            self.annotation_changed.emit()
+            event.accept()
+            return
+
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.mode == "arrow" and self._drag_start is not None:
+        if self.mode in ("arrow", "rectangle") and self._drag_start is not None:
             self._drag_current = event.pos()
             self.update()
             event.accept()
@@ -374,6 +414,22 @@ class AnnotationOverlay(QWidget):
             event.accept()
             return
 
+        if self.mode == "rectangle" and self._drag_start is not None:
+            start = self._drag_start
+            end = event.pos()
+            annotation = RectangleAnnotation(
+                start=(start.x(), start.y()),
+                end=(end.x(), end.y()),
+                text=self.narrative_text if self.show_narrative else "",
+            )
+            self._append_annotation("rectangle", annotation)
+            self._drag_start = None
+            self._drag_current = None
+            self.update()
+            self.annotation_changed.emit()
+            event.accept()
+            return
+
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
@@ -387,14 +443,24 @@ class AnnotationOverlay(QWidget):
 
         arrow_pen = QPen(self.palette.arrow, 5)
         circle_pen = QPen(self.palette.circle, 5)
+        rectangle_pen = QPen(self.palette.arrow, 5)
 
         for arrow in self.arrows:
             self._draw_arrow(painter, QPoint(*arrow.start), QPoint(*arrow.end), arrow_pen)
             if arrow.text:
                 self._draw_text_box(painter, QPoint(arrow.start[0] + 12, arrow.start[1] - 12), arrow.text)
 
-        if self._drag_start is not None and self._drag_current is not None:
+        if self.mode == "arrow" and self._drag_start is not None and self._drag_current is not None:
             self._draw_arrow(painter, self._drag_start, self._drag_current, arrow_pen)
+            if self.show_narrative:
+                self._draw_text_box(
+                    painter,
+                    QPoint(self._drag_start.x() + 12, self._drag_start.y() - 12),
+                    self.narrative_text,
+                )
+
+        if self.mode == "rectangle" and self._drag_start is not None and self._drag_current is not None:
+            self._draw_rectangle(painter, self._drag_start, self._drag_current, rectangle_pen)
             if self.show_narrative:
                 self._draw_text_box(
                     painter,
@@ -407,6 +473,12 @@ class AnnotationOverlay(QWidget):
 
         for circle in self.numbered_circles:
             self._draw_numbered_circle(painter, circle, circle_pen)
+
+        for circle in self.circles:
+            self._draw_circle(painter, circle, circle_pen)
+
+        for rectangle in self.rectangles:
+            self._draw_rectangle_annotation(painter, rectangle, rectangle_pen)
 
         self._draw_click_ripples(painter)
 
@@ -456,6 +528,34 @@ class AnnotationOverlay(QWidget):
         if circle.text:
             label_anchor = QPoint(center.x() + circle.radius + 10, center.y() - 4)
             self._draw_text_box(painter, label_anchor, circle.text)
+
+    def _draw_circle(self, painter: QPainter, circle: CircleAnnotation, pen: QPen):
+        center = QPoint(*circle.center)
+        painter.setPen(pen)
+        painter.setBrush(self.palette.background)
+        painter.drawEllipse(center, circle.radius, circle.radius)
+
+        if circle.text:
+            label_anchor = QPoint(center.x() + circle.radius + 10, center.y() - 4)
+            self._draw_text_box(painter, label_anchor, circle.text)
+
+    def _draw_rectangle_annotation(
+        self,
+        painter: QPainter,
+        rectangle: RectangleAnnotation,
+        pen: QPen,
+    ):
+        self._draw_rectangle(painter, QPoint(*rectangle.start), QPoint(*rectangle.end), pen)
+        if rectangle.text:
+            x = min(rectangle.start[0], rectangle.end[0])
+            y = min(rectangle.start[1], rectangle.end[1])
+            self._draw_text_box(painter, QPoint(x + 12, y - 12), rectangle.text)
+
+    def _draw_rectangle(self, painter: QPainter, start: QPoint, end: QPoint, pen: QPen):
+        rect = QRect(start, end).normalized()
+        painter.setPen(pen)
+        painter.setBrush(self.palette.background)
+        painter.drawRect(rect)
 
     def _draw_text_box(self, painter: QPainter, anchor: QPoint, text: str):
         if not text:

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import mss
+import mss.tools
 from qtpy.QtCore import QEvent, QPoint, QSettings, QTimer, Qt
 from qtpy.QtWidgets import (
     QCheckBox,
@@ -26,6 +27,7 @@ from qtpy.QtWidgets import (
     QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
     QTextEdit,
@@ -445,7 +447,25 @@ class DemoAssistantWidget(QWidget):
         self.setMinimumWidth(0)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("MainScrollArea")
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.NoFrame)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setMinimumHeight(0)
+        scroll_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
+        content = QWidget()
+        content.setObjectName("ScrollContent")
+        content.setMinimumWidth(0)
+        content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
@@ -577,6 +597,12 @@ class DemoAssistantWidget(QWidget):
         controls_buttons_layout.addWidget(self.pause_btn)
         controls_buttons_layout.addWidget(self.stop_btn)
         controls_layout.addLayout(controls_buttons_layout)
+        self.snapshot_btn = QPushButton("▣ Snapshot PNG")
+        self.snapshot_btn.setObjectName("SnapshotButton")
+        self.snapshot_btn.setToolTip(
+            "Save a PNG image of the selected capture target, including visible annotations."
+        )
+        controls_layout.addWidget(self.snapshot_btn)
         self.frame_label = QLabel("▣  Frames: 0   •   ◷  Time: 0.0 s")
         self.frame_label.setObjectName("ActivityLine")
         controls_layout.addWidget(self.frame_label)
@@ -651,6 +677,8 @@ class DemoAssistantWidget(QWidget):
         self.arrow_btn = QPushButton("↗ Arrow")
         self.text_stamp_btn = QPushButton("T Text")
         self.numbered_circle_btn = QPushButton("① Step")
+        self.circle_btn = QPushButton("○ Circle")
+        self.rectangle_btn = QPushButton("▭ Rectangle")
         self.exit_drawing_btn = QPushButton("⌖ Exit")
         self.undo_annotation_btn = QPushButton("↶ Undo")
         self.redo_annotation_btn = QPushButton("↷ Redo")
@@ -673,6 +701,8 @@ class DemoAssistantWidget(QWidget):
             self.arrow_btn,
             self.text_stamp_btn,
             self.numbered_circle_btn,
+            self.circle_btn,
+            self.rectangle_btn,
             self.exit_drawing_btn,
             self.undo_annotation_btn,
             self.redo_annotation_btn,
@@ -686,11 +716,13 @@ class DemoAssistantWidget(QWidget):
         mode_grid.addWidget(self.arrow_btn, 0, 0)
         mode_grid.addWidget(self.text_stamp_btn, 0, 1)
         mode_grid.addWidget(self.numbered_circle_btn, 0, 2)
-        mode_grid.addWidget(self.exit_drawing_btn, 1, 0)
-        mode_grid.addWidget(self.undo_annotation_btn, 1, 1)
-        mode_grid.addWidget(self.redo_annotation_btn, 1, 2)
-        mode_grid.addWidget(self.clear_annotations_btn, 2, 0)
-        mode_grid.addWidget(self.remove_overlay_btn, 2, 1, 1, 2)
+        mode_grid.addWidget(self.circle_btn, 1, 0)
+        mode_grid.addWidget(self.rectangle_btn, 1, 1)
+        mode_grid.addWidget(self.exit_drawing_btn, 1, 2)
+        mode_grid.addWidget(self.undo_annotation_btn, 2, 0)
+        mode_grid.addWidget(self.redo_annotation_btn, 2, 1)
+        mode_grid.addWidget(self.clear_annotations_btn, 2, 2)
+        mode_grid.addWidget(self.remove_overlay_btn, 3, 0, 1, 3)
         annotation_layout.addLayout(mode_grid)
 
         hint = QLabel(
@@ -742,6 +774,9 @@ class DemoAssistantWidget(QWidget):
         log_box.set_content_layout(log_layout)
         layout.addWidget(log_box)
 
+        scroll_area.setWidget(content)
+        outer_layout.addWidget(scroll_area)
+
         self._set_status_chips("off", "hidden", "ready")
 
     def _apply_styles(self):
@@ -754,6 +789,10 @@ class DemoAssistantWidget(QWidget):
                 background: #111820;
                 color: #dce6f1;
                 font-size: 13px;
+            }
+            QScrollArea#MainScrollArea,
+            QWidget#ScrollContent {
+                background: #111820;
             }
             QLabel {
                 color: #dce6f1;
@@ -889,6 +928,17 @@ class DemoAssistantWidget(QWidget):
                 color: #ff9da6;
                 font-weight: 700;
             }
+            QPushButton#SnapshotButton {
+                background: #152f3b;
+                border-color: #35baf2;
+                color: #b8f2ff;
+                font-weight: 700;
+            }
+            QPushButton#SnapshotButton:hover {
+                background: #1c4050;
+                border-color: #ff75c8;
+                color: #ffd2ee;
+            }
             QPushButton#AnnotationButton {
                 border-color: #435365;
                 min-height: 36px;
@@ -958,6 +1008,8 @@ class DemoAssistantWidget(QWidget):
             "arrow": ("↗  Arrow Mode", "amber"),
             "text": ("T  Text Mode", "amber"),
             "numbered_circle": ("①  Step Mode", "amber"),
+            "circle": ("○  Circle Mode", "amber"),
+            "rectangle": ("▭  Rectangle Mode", "amber"),
         }
         visibility_map = {
             "hidden": ("◉  Annotations Hidden", "gray"),
@@ -985,6 +1037,7 @@ class DemoAssistantWidget(QWidget):
         self.about_btn.clicked.connect(self.show_about)
         self.choose_output_btn.clicked.connect(self.choose_output_path)
         self.start_btn.clicked.connect(self.start_recording)
+        self.snapshot_btn.clicked.connect(self.save_png_snapshot)
         self.pause_btn.clicked.connect(self.toggle_pause)
         self.stop_btn.clicked.connect(self.stop_recording)
         self.add_step_btn.clicked.connect(self.add_step_marker)
@@ -992,6 +1045,8 @@ class DemoAssistantWidget(QWidget):
         self.arrow_btn.clicked.connect(lambda: self.set_annotation_mode("arrow"))
         self.text_stamp_btn.clicked.connect(lambda: self.set_annotation_mode("text"))
         self.numbered_circle_btn.clicked.connect(lambda: self.set_annotation_mode("numbered_circle"))
+        self.circle_btn.clicked.connect(lambda: self.set_annotation_mode("circle"))
+        self.rectangle_btn.clicked.connect(lambda: self.set_annotation_mode("rectangle"))
         self.exit_drawing_btn.clicked.connect(lambda: self.set_annotation_mode("off"))
         self.undo_annotation_btn.clicked.connect(self.undo_annotation)
         self.redo_annotation_btn.clicked.connect(self.redo_annotation)
@@ -1056,7 +1111,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.3.1"
+            version = "1.4.0"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")
@@ -1102,6 +1157,42 @@ class DemoAssistantWidget(QWidget):
     def _default_output_path(self) -> Path:
         last_dir = self.settings.value("last_output_dir", str(Path.home()), type=str)
         return Path(last_dir) / f"napari_demo_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
+
+    def _default_snapshot_path(self) -> Path:
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        output_text = self.output_line.text().strip()
+        if output_text:
+            output_path = Path(output_text)
+            return output_path.with_name(f"{output_path.stem}_snapshot_{timestamp}.png")
+
+        last_dir = self.settings.value("last_output_dir", str(Path.home()), type=str)
+        return Path(last_dir) / f"napari_demo_snapshot_{timestamp}.png"
+
+    def save_png_snapshot(self):
+        try:
+            if self.overlay is not None:
+                self._sync_overlay_geometry()
+                QApplication.processEvents()
+
+            bbox = self._get_capture_bbox()
+            self._preflight_capture_bbox(bbox)
+            snapshot_path = self._default_snapshot_path()
+            snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with mss.mss() as sct:
+                image = sct.grab(bbox)
+                mss.tools.to_png(image.rgb, image.size, output=str(snapshot_path))
+
+            self._save_settings()
+            self._log(f"PNG snapshot saved: {snapshot_path}")
+            QMessageBox.information(
+                self,
+                "Snapshot saved",
+                f"Saved PNG snapshot:\n{snapshot_path}",
+            )
+        except Exception as exc:
+            self._log(f"PNG snapshot failed: {exc}")
+            QMessageBox.critical(self, "Snapshot failed", str(exc))
 
     def activate_annotation_overlay(self):
         # Live annotation covers the full napari window so arrows/stamps can
@@ -1170,6 +1261,14 @@ class DemoAssistantWidget(QWidget):
             self._set_status_chips("numbered_circle", "visible", "drawing")
             self.status_label.setText("Status: Step mode")
             self._log("Step mode: click to place number. Right-click/Esc to exit.")
+        elif mode == "circle":
+            self._set_status_chips("circle", "visible", "drawing")
+            self.status_label.setText("Status: Circle mode")
+            self._log("Circle mode: click to place circle. Right-click/Esc to exit.")
+        elif mode == "rectangle":
+            self._set_status_chips("rectangle", "visible", "drawing")
+            self.status_label.setText("Status: Rectangle mode")
+            self._log("Rectangle mode: drag corner to corner. Right-click/Esc to exit.")
 
     def set_annotation_palette(self, palette_name: str):
         self._save_settings()

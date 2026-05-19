@@ -9,6 +9,14 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.4.0 - 2026-05-19
+
+### Added
+
+- Added a PNG snapshot button for quick annotated screen captures of the selected target.
+- Added plain circle and rectangle annotation modes.
+- Wrapped the dock-widget content in a scroll area so the panel can be resized shorter while keeping all controls accessible.
+
 ## 1.3.1 - 2026-05-19
 
 ### Fixed
