@@ -116,7 +116,7 @@ class AnnotationOverlay(QWidget):
     - arrow: drag from arrow tail to arrow head. Optional narrative text is drawn at the tail.
     - text: click to place optional narrative text.
     - numbered_circle: click to place a numbered high-contrast circle.
-    - circle: click to place a high-contrast circle without a number.
+    - circle: drag from center to edge to size a circle without a number.
     - rectangle: drag from one corner to the opposite corner.
 
     Mouse shortcut:
@@ -140,6 +140,7 @@ class AnnotationOverlay(QWidget):
         self.current_number = 1
         self.palette_name = "Orange / Yellow"
         self.palette = PALETTES[self.palette_name]
+        self.shape_fill_transparent = False
 
         self.arrows: list[ArrowAnnotation] = []
         self.texts: list[TextAnnotation] = []
@@ -214,6 +215,10 @@ class AnnotationOverlay(QWidget):
     def set_palette(self, palette_name: str):
         self.palette_name = palette_name if palette_name in PALETTES else "Orange / Yellow"
         self.palette = PALETTES[self.palette_name]
+        self.update()
+
+    def set_shape_fill_transparent(self, enabled: bool):
+        self.shape_fill_transparent = bool(enabled)
         self.update()
 
     def clear_annotations(self):
@@ -342,7 +347,7 @@ class AnnotationOverlay(QWidget):
             event.accept()
             return
 
-        if self.mode in ("arrow", "rectangle"):
+        if self.mode in ("arrow", "circle", "rectangle"):
             self._drag_start = event.pos()
             self._drag_current = event.pos()
             event.accept()
@@ -374,22 +379,10 @@ class AnnotationOverlay(QWidget):
             event.accept()
             return
 
-        if self.mode == "circle":
-            annotation = CircleAnnotation(
-                center=(event.pos().x(), event.pos().y()),
-                radius=34,
-                text=self.narrative_text if self.show_narrative else "",
-            )
-            self._append_annotation("circle", annotation)
-            self.update()
-            self.annotation_changed.emit()
-            event.accept()
-            return
-
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.mode in ("arrow", "rectangle") and self._drag_start is not None:
+        if self.mode in ("arrow", "circle", "rectangle") and self._drag_start is not None:
             self._drag_current = event.pos()
             self.update()
             event.accept()
@@ -407,6 +400,22 @@ class AnnotationOverlay(QWidget):
                 text=self.narrative_text if self.show_narrative else "",
             )
             self._append_annotation("arrow", annotation)
+            self._drag_start = None
+            self._drag_current = None
+            self.update()
+            self.annotation_changed.emit()
+            event.accept()
+            return
+
+        if self.mode == "circle" and self._drag_start is not None:
+            start = self._drag_start
+            end = event.pos()
+            annotation = CircleAnnotation(
+                center=(start.x(), start.y()),
+                radius=self._radius_between(start, end),
+                text=self.narrative_text if self.show_narrative else "",
+            )
+            self._append_annotation("circle", annotation)
             self._drag_start = None
             self._drag_current = None
             self.update()
@@ -467,6 +476,14 @@ class AnnotationOverlay(QWidget):
                     QPoint(self._drag_start.x() + 12, self._drag_start.y() - 12),
                     self.narrative_text,
                 )
+
+        if self.mode == "circle" and self._drag_start is not None and self._drag_current is not None:
+            preview_circle = CircleAnnotation(
+                center=(self._drag_start.x(), self._drag_start.y()),
+                radius=self._radius_between(self._drag_start, self._drag_current),
+                text=self.narrative_text if self.show_narrative else "",
+            )
+            self._draw_circle(painter, preview_circle, circle_pen)
 
         for text in self.texts:
             self._draw_text_box(painter, QPoint(*text.pos), text.text)
@@ -532,7 +549,7 @@ class AnnotationOverlay(QWidget):
     def _draw_circle(self, painter: QPainter, circle: CircleAnnotation, pen: QPen):
         center = QPoint(*circle.center)
         painter.setPen(pen)
-        painter.setBrush(self.palette.background)
+        painter.setBrush(Qt.NoBrush if self.shape_fill_transparent else self.palette.background)
         painter.drawEllipse(center, circle.radius, circle.radius)
 
         if circle.text:
@@ -554,8 +571,13 @@ class AnnotationOverlay(QWidget):
     def _draw_rectangle(self, painter: QPainter, start: QPoint, end: QPoint, pen: QPen):
         rect = QRect(start, end).normalized()
         painter.setPen(pen)
-        painter.setBrush(self.palette.background)
+        painter.setBrush(Qt.NoBrush if self.shape_fill_transparent else self.palette.background)
         painter.drawRect(rect)
+
+    def _radius_between(self, start: QPoint, end: QPoint) -> int:
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        return max(8, int((dx * dx + dy * dy) ** 0.5))
 
     def _draw_text_box(self, painter: QPainter, anchor: QPoint, text: str):
         if not text:

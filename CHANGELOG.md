@@ -9,6 +9,17 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.5.0 - 2026-05-19
+
+### Changed
+
+- Made the scrollable dock content expand to the available napari dock height instead of leaving unused empty space.
+- Changed plain circle annotations from fixed-size click placement to drag-sized placement.
+
+### Added
+
+- Added a transparent fill option for plain circle and rectangle annotations.
+
 ## 1.4.0 - 2026-05-19
 
 ### Added

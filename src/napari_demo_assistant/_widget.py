@@ -445,7 +445,7 @@ class DemoAssistantWidget(QWidget):
 
     def _build_ui(self):
         self.setMinimumWidth(0)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -458,7 +458,7 @@ class DemoAssistantWidget(QWidget):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setMinimumHeight(0)
-        scroll_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        scroll_area.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
 
         content = QWidget()
         content.setObjectName("ScrollContent")
@@ -665,8 +665,14 @@ class DemoAssistantWidget(QWidget):
         style_grid.setHorizontalSpacing(8)
         self.palette_combo = QComboBox()
         self.palette_combo.addItems(list(PALETTES.keys()))
+        self.transparent_shape_check = QCheckBox("Transparent circle / rectangle fill")
+        self.transparent_shape_check.setToolTip(
+            "Leave circle and rectangle interiors transparent instead of filled."
+        )
         style_grid.addWidget(QLabel("◉  Palette"), 0, 0)
         style_grid.addWidget(self.palette_combo, 0, 1)
+        style_grid.addWidget(QLabel("□  Shape fill"), 1, 0)
+        style_grid.addWidget(self.transparent_shape_check, 1, 1)
         style_grid.setColumnStretch(2, 1)
         annotation_layout.addLayout(style_grid)
 
@@ -775,7 +781,7 @@ class DemoAssistantWidget(QWidget):
         layout.addWidget(log_box)
 
         scroll_area.setWidget(content)
-        outer_layout.addWidget(scroll_area)
+        outer_layout.addWidget(scroll_area, stretch=1)
 
         self._set_status_chips("off", "hidden", "ready")
 
@@ -1053,6 +1059,7 @@ class DemoAssistantWidget(QWidget):
         self.remove_overlay_btn.clicked.connect(self.deactivate_annotation_overlay)
         self.clear_annotations_btn.clicked.connect(self.clear_annotations)
         self.palette_combo.currentTextChanged.connect(self.set_annotation_palette)
+        self.transparent_shape_check.toggled.connect(self._on_shape_fill_toggled)
         self.action_log_check.toggled.connect(self._on_action_logging_toggled)
 
         self.step_input.textChanged.connect(self._update_overlay_annotation_settings)
@@ -1072,6 +1079,9 @@ class DemoAssistantWidget(QWidget):
         if last_palette in PALETTES:
             self.palette_combo.setCurrentText(last_palette)
 
+        self.transparent_shape_check.setChecked(
+            self.settings.value("transparent_shape_fill", False, type=bool)
+        )
         self.target_combo.setCurrentText(
             self.settings.value("target", "Full napari window", type=str)
         )
@@ -1083,6 +1093,10 @@ class DemoAssistantWidget(QWidget):
         self.settings.setValue("fps", self.fps_spin.value())
         self.settings.setValue("crf", self.crf_spin.value())
         self.settings.setValue("last_palette", self.palette_combo.currentText())
+        self.settings.setValue(
+            "transparent_shape_fill",
+            self.transparent_shape_check.isChecked(),
+        )
         output_text = self.output_line.text().strip()
         if output_text:
             self.settings.setValue("last_output_path", output_text)
@@ -1111,7 +1125,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.4.0"
+            version = "1.5.0"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")
@@ -1209,6 +1223,7 @@ class DemoAssistantWidget(QWidget):
         self.overlay = AnnotationOverlay(parent=target_widget)
         self.overlay.setGeometry(target_widget.rect())
         self.overlay.set_palette(self.palette_combo.currentText())
+        self.overlay.set_shape_fill_transparent(self.transparent_shape_check.isChecked())
         self.overlay.set_current_number(self.step_number_spin.value())
         self.overlay.set_narrative_text(self.step_input.text(), self.narrative_check.isChecked())
         self.overlay.set_mode("off")
@@ -1264,7 +1279,7 @@ class DemoAssistantWidget(QWidget):
         elif mode == "circle":
             self._set_status_chips("circle", "visible", "drawing")
             self.status_label.setText("Status: Circle mode")
-            self._log("Circle mode: click to place circle. Right-click/Esc to exit.")
+            self._log("Circle mode: drag center to edge. Right-click/Esc to exit.")
         elif mode == "rectangle":
             self._set_status_chips("rectangle", "visible", "drawing")
             self.status_label.setText("Status: Rectangle mode")
@@ -1275,6 +1290,13 @@ class DemoAssistantWidget(QWidget):
         if self.overlay is not None:
             self.overlay.set_palette(palette_name)
         self._log(f"Palette selected: {palette_name}")
+
+    def _on_shape_fill_toggled(self, checked: bool):
+        self._save_settings()
+        if self.overlay is not None:
+            self.overlay.set_shape_fill_transparent(checked)
+        state = "transparent" if checked else "filled"
+        self._log(f"Circle/rectangle fill: {state}")
 
     def _update_overlay_annotation_settings(self):
         if self.overlay is not None:

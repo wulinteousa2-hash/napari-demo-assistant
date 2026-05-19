@@ -4,7 +4,7 @@
 
 It is designed for scientific-software demos, user support, GitHub issue feedback, tutorials, and plugin workflows such as `napari-sam3-assistant`.
 
-Current release: `1.4.0`.
+Current release: `1.5.0`.
 
 ![napari-demo-assistant dock widget](docs/ui.png)
 
@@ -16,7 +16,8 @@ The plugin focuses on **demo recording**, not screenshot capture. Most operating
 - Export MP4 video with H.264 compression.
 - Save annotated PNG snapshots of the selected capture target.
 - Add arrows, text stamps, and numbered step circles while recording.
-- Add plain circles and rectangles for screenshot-style callouts.
+- Add drag-sized circles and rectangles for screenshot-style callouts.
+- Choose filled or transparent circle/rectangle interiors.
 - Use high-contrast annotation color palettes.
 - Attach optional narrative labels to annotations.
 - Use a compact, icon-driven dock widget designed for napari.
