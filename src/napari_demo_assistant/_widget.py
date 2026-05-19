@@ -43,6 +43,55 @@ PACKAGE_NAME = "napari-demo-assistant"
 CAPTION_DURATION_SEC = 3.0
 
 
+class _CollapsibleSection(QWidget):
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(4)
+
+        header = QWidget()
+        header.setObjectName("SectionHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+
+        self._toggle = QToolButton()
+        self._toggle.setObjectName("SectionToggle")
+        self._toggle.setCheckable(True)
+        self._toggle.setChecked(True)
+        self._toggle.setText("-")
+        self._toggle.setFixedWidth(24)
+        self._toggle.setToolTip(f"Collapse or expand {title}")
+
+        title_label = QLabel(title)
+        title_label.setObjectName("SectionTitle")
+
+        header_layout.addWidget(self._toggle)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch(1)
+
+        self.body = QGroupBox()
+        self.body.setObjectName("CollapsibleBody")
+        self.body.setMinimumWidth(0)
+        self.body.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+        root_layout.addWidget(header)
+        root_layout.addWidget(self.body)
+
+        self._toggle.toggled.connect(self._set_expanded)
+
+    def set_content_layout(self, layout):
+        self.body.setLayout(layout)
+
+    def _set_expanded(self, expanded: bool):
+        self.body.setVisible(expanded)
+        self._toggle.setText("-" if expanded else "+")
+
+
 @dataclass
 class StepMarker:
     time_sec: float
@@ -425,9 +474,9 @@ class DemoAssistantWidget(QWidget):
         # ------------------------------------------------------------------
         # Recording
         # ------------------------------------------------------------------
-        settings_box = QGroupBox("  1  Recording")
-        settings_layout = QFormLayout(settings_box)
-        settings_layout.setContentsMargins(12, 18, 12, 10)
+        settings_box = _CollapsibleSection("1  Recording")
+        settings_layout = QFormLayout()
+        settings_layout.setContentsMargins(12, 12, 12, 10)
         settings_layout.setSpacing(8)
         settings_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
@@ -492,14 +541,15 @@ class DemoAssistantWidget(QWidget):
         settings_layout.addRow("", self.srt_actions_check)
         settings_layout.addRow("▰  Output", output_row)
         settings_layout.addRow("", self.keep_output_check)
+        settings_box.set_content_layout(settings_layout)
         layout.addWidget(settings_box)
 
         # ------------------------------------------------------------------
         # Recording controls
         # ------------------------------------------------------------------
-        controls_box = QGroupBox("  2  Record Controls")
-        controls_layout = QVBoxLayout(controls_box)
-        controls_layout.setContentsMargins(12, 18, 12, 10)
+        controls_box = _CollapsibleSection("2  Record Controls")
+        controls_layout = QVBoxLayout()
+        controls_layout.setContentsMargins(12, 12, 12, 10)
         controls_layout.setSpacing(8)
         controls_buttons_layout = QHBoxLayout()
         controls_buttons_layout.setContentsMargins(0, 0, 0, 0)
@@ -517,14 +567,15 @@ class DemoAssistantWidget(QWidget):
         self.frame_label = QLabel("▣  Frames: 0   •   ◷  Time: 0.0 s")
         self.frame_label.setObjectName("ActivityLine")
         controls_layout.addWidget(self.frame_label)
+        controls_box.set_content_layout(controls_layout)
         layout.addWidget(controls_box)
 
         # ------------------------------------------------------------------
         # Steps / narrative
         # ------------------------------------------------------------------
-        step_box = QGroupBox("  3  Step / Narrative")
-        step_layout = QFormLayout(step_box)
-        step_layout.setContentsMargins(12, 18, 12, 10)
+        step_box = _CollapsibleSection("3  Step / Narrative")
+        step_layout = QFormLayout()
+        step_layout.setContentsMargins(12, 12, 12, 10)
         step_layout.setSpacing(8)
 
         self.step_number_spin = QSpinBox()
@@ -557,14 +608,15 @@ class DemoAssistantWidget(QWidget):
         step_layout.addRow("○  Narrative", self.narrative_check)
         step_layout.addRow("⚑  Marker text", self.step_input)
         step_layout.addRow("", self.add_step_btn)
+        step_box.set_content_layout(step_layout)
         layout.addWidget(step_box)
 
         # ------------------------------------------------------------------
         # Live annotation
         # ------------------------------------------------------------------
-        annotation_box = QGroupBox("  4  Live Annotation")
-        annotation_layout = QVBoxLayout(annotation_box)
-        annotation_layout.setContentsMargins(12, 18, 12, 10)
+        annotation_box = _CollapsibleSection("4  Live Annotation")
+        annotation_layout = QVBoxLayout()
+        annotation_layout.setContentsMargins(12, 12, 12, 10)
         annotation_layout.setSpacing(8)
 
         style_grid = QGridLayout()
@@ -632,11 +684,12 @@ class DemoAssistantWidget(QWidget):
         hint.setObjectName("HintLabel")
         hint.setWordWrap(True)
         annotation_layout.addWidget(hint)
+        annotation_box.set_content_layout(annotation_layout)
         layout.addWidget(annotation_box)
 
-        status_box = QGroupBox("  5  Status / Activity")
-        status_layout = QVBoxLayout(status_box)
-        status_layout.setContentsMargins(12, 18, 12, 10)
+        status_box = _CollapsibleSection("5  Status / Activity")
+        status_layout = QVBoxLayout()
+        status_layout.setContentsMargins(12, 12, 12, 10)
         status_layout.setSpacing(8)
 
         chips_row = QHBoxLayout()
@@ -658,16 +711,18 @@ class DemoAssistantWidget(QWidget):
         self.status_label = QLabel("Status: Idle")
         self.status_label.setObjectName("StatusLine")
         status_layout.addWidget(self.status_label)
+        status_box.set_content_layout(status_layout)
         layout.addWidget(status_box)
 
-        log_box = QGroupBox("  6  Log")
-        log_layout = QVBoxLayout(log_box)
-        log_layout.setContentsMargins(12, 18, 12, 10)
+        log_box = _CollapsibleSection("6  Log")
+        log_layout = QVBoxLayout()
+        log_layout.setContentsMargins(12, 12, 12, 10)
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
         self.log_box.setMinimumHeight(118)
         self.log_box.setObjectName("LogBox")
         log_layout.addWidget(self.log_box)
+        log_box.set_content_layout(log_layout)
         layout.addWidget(log_box)
 
         self._set_status_chips("off", "hidden", "ready")
@@ -689,6 +744,12 @@ class DemoAssistantWidget(QWidget):
             QLabel#TitleLabel {
                 font-size: 20px;
                 font-weight: 700;
+            }
+            QLabel#SectionTitle {
+                color: #f2f8ff;
+                font-size: 14px;
+                font-weight: 700;
+                padding-left: 2px;
             }
             QLabel#SubtitleLabel,
             QLabel#HintLabel,
@@ -719,6 +780,29 @@ class DemoAssistantWidget(QWidget):
                 subcontrol-origin: margin;
                 left: 10px;
                 padding: 0 6px;
+            }
+            QGroupBox#CollapsibleBody {
+                border: 1px solid #2d5161;
+                border-left: 4px solid #35d7f3;
+                border-radius: 8px;
+                margin-top: 2px;
+                background: rgba(53, 215, 243, 0.035);
+            }
+            QWidget#SectionHeader {
+                background: transparent;
+            }
+            QToolButton#SectionToggle {
+                background: #121f28;
+                border: 1px solid #35d7f3;
+                border-radius: 6px;
+                color: #7fe9ff;
+                font-weight: 700;
+                padding: 1px 5px;
+            }
+            QToolButton#SectionToggle:hover {
+                background: #19303a;
+                border-color: #ff75c8;
+                color: #ff9bd8;
             }
             QLineEdit,
             QComboBox,
@@ -955,7 +1039,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.2.1"
+            version = "1.3.0"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")

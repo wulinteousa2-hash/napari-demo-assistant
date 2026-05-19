@@ -9,6 +9,12 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.3.0 - 2026-05-19
+
+### Added
+
+- Added collapsible dock-widget sections so users can shrink the Demo Assistant panel while keeping the existing section wording.
+
 ## 1.2.1 - 2026-05-19
 
 ### Fixed
