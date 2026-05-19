@@ -4,7 +4,7 @@
 
 It is designed for scientific-software demos, user support, GitHub issue feedback, tutorials, and plugin workflows such as `napari-sam3-assistant`.
 
-Current release: `1.3.0`.
+Current release: `1.3.1`.
 
 ![napari-demo-assistant dock widget](docs/ui.png)
 

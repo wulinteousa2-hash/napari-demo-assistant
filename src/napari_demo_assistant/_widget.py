@@ -92,6 +92,11 @@ class _CollapsibleSection(QWidget):
         self._toggle.setText("-" if expanded else "+")
 
 
+def _allow_horizontal_shrink(widget: QWidget):
+    widget.setMinimumWidth(0)
+    widget.setSizePolicy(QSizePolicy.Preferred, widget.sizePolicy().verticalPolicy())
+
+
 @dataclass
 class StepMarker:
     time_sec: float
@@ -437,6 +442,9 @@ class DemoAssistantWidget(QWidget):
         self._log(f'Action logged: {action.widget_type} "{action.text}"')
 
     def _build_ui(self):
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -453,11 +461,14 @@ class DemoAssistantWidget(QWidget):
 
         title = QLabel("napari-demo-assistant")
         title.setObjectName("TitleLabel")
+        title.setWordWrap(True)
         subtitle = QLabel(
             "Record napari demos with arrows, labels, and numbered steps."
         )
         subtitle.setObjectName("SubtitleLabel")
         subtitle.setWordWrap(True)
+        for shrink_widget in (title_block, title, subtitle):
+            _allow_horizontal_shrink(shrink_widget)
         title_layout.addWidget(title)
         title_layout.addWidget(subtitle)
         header_layout.addWidget(title_block, stretch=1)
@@ -479,6 +490,8 @@ class DemoAssistantWidget(QWidget):
         settings_layout.setContentsMargins(12, 12, 12, 10)
         settings_layout.setSpacing(8)
         settings_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        settings_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        settings_layout.setRowWrapPolicy(QFormLayout.WrapLongRows)
 
         self.target_combo = QComboBox()
         self.target_combo.addItems(["Full napari window", "Viewer canvas only"])
@@ -577,6 +590,8 @@ class DemoAssistantWidget(QWidget):
         step_layout = QFormLayout()
         step_layout.setContentsMargins(12, 12, 12, 10)
         step_layout.setSpacing(8)
+        step_layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        step_layout.setRowWrapPolicy(QFormLayout.WrapLongRows)
 
         self.step_number_spin = QSpinBox()
         self.step_number_spin.setRange(1, 999)
@@ -705,6 +720,8 @@ class DemoAssistantWidget(QWidget):
         ):
             chip.setObjectName("StatusChip")
             chip.setAlignment(Qt.AlignCenter)
+            chip.setWordWrap(True)
+            _allow_horizontal_shrink(chip)
             chips_row.addWidget(chip)
         status_layout.addLayout(chips_row)
 
@@ -1039,7 +1056,7 @@ class DemoAssistantWidget(QWidget):
         try:
             version = metadata.version(PACKAGE_NAME)
         except metadata.PackageNotFoundError:
-            version = "1.3.0"
+            version = "1.3.1"
 
         message = QMessageBox(self)
         message.setWindowTitle("About napari-demo-assistant")

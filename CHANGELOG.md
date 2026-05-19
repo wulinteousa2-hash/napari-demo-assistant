@@ -9,6 +9,12 @@ This project follows a simple changelog style:
 - `Fixed` for bug fixes
 - `Notes` for release context
 
+## 1.3.1 - 2026-05-19
+
+### Fixed
+
+- Relaxed dock-widget width constraints so the Demo Assistant panel can be resized narrower on desktop Qt/napari setups.
+
 ## 1.3.0 - 2026-05-19
 
 ### Added
